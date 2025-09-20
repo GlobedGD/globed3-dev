@@ -2,6 +2,8 @@
 
 Globed is an open-source, highly customizable multiplayer mod for Geometry Dash.
 
+---
+
 ## Usage
 
 In the main menu, an extra button is added to the bottom row. This button opens the Globed Menu, where you can join a server and start playing online with other people.
@@ -29,7 +31,7 @@ Globed is made by:
 
 and the rest of our awesome [contributors](https://github.com/GlobedGD/globed2/graphs/contributors)!
 
-Special thanks:
+Special Thanks:
 
 * [availax](user:1621348) - for co-creating the mod and helping with everything for a long time
 * [MathieuAR](user:3759035) - for providing us server hosting

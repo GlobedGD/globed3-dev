@@ -31,7 +31,7 @@ bool SupportPopup::setup(CCSprite* bg) {
         this->fromBottomRight(pad, pad),
     };
 
-    constexpr float tintDuration = 1.5f;
+    constexpr float tintDuration = 3.f;
 
     auto bgSequence = CCRepeatForever::create(CCSequence::create(
         CCTintTo::create(tintDuration, 40, 190, 255),
@@ -88,11 +88,12 @@ bool SupportPopup::setup(CCSprite* bg) {
     m_background->runAction(bgSequence);
 
     m_ground = Build(cue::RepeatingBackground::create("groundSquare_02_001.png", 0.6f, cue::RepeatMode::X, m_size))
-        .with([&](auto bg) { bg->setSpeed(10.f); })
+        .with([&](auto bg) { bg->setSpeed(30.f); })
         .id("ground")
-        .posY(-10.f)
+        .posY(-62.f)
         .color({40 - tintMod, 125 - tintMod, 255 - tintMod})
         .zOrder(6)
+        .scale(1.0f)
         .parent(clippingNode);
 
     m_ground->runAction(groundSequence);
@@ -131,7 +132,7 @@ bool SupportPopup::setup(CCSprite* bg) {
             geode::utils::web::openLinkInBrowser("https://ko-fi.com/globed");
         })
         .intoNewParent(CCMenu::create())
-        .pos(this->fromBottom(5.f))
+        .pos(this->fromBottom(41.f))
         .anchorPoint(0.f, 0.f)
         .with([&](CCMenu* menu) {
             auto buttonSequence = CCRepeatForever::create(CCSequence::create(
@@ -153,7 +154,7 @@ bool SupportPopup::setup(CCSprite* bg) {
         .parent(clippingNode)
         .with([&](cue::PlayerIcon* player) {
             auto playerSequence = CCSequence::create(
-                CCDelayTime::create(0.25f),
+                CCDelayTime::create(0.15f),
                 CCCallFunc::create(this, callfunc_selector(SupportPopup::kofiEnableParticlesCallback)),
                 CCEaseExponentialOut::create(CCMoveBy::create(1.25f, {150.f, 0.f})),
                 nullptr
@@ -222,8 +223,8 @@ void SupportPopup::kofiEnableParticlesCallback2(float dt) {
 }
 
 SupportPopup* SupportPopup::create() {
-    auto bg = CCSprite::create("kofi-promo-border.png"_spr);
-    float scaleMult = std::min(1.5f, (CCDirector::get()->getWinSize().width - 35.f) / bg->getContentWidth());
+    auto bg = CCSprite::create("kofi-promo-border02.png"_spr);
+    float scaleMult = std::min(1.5f, (CCDirector::get()->getWinSize().width - 70.f) / bg->getContentWidth());
     bg->setScale(scaleMult);
     POPUP_SIZE = bg->getScaledContentSize();
 

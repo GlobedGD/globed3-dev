@@ -36,7 +36,7 @@ static constexpr CCSize PLAYER_LIST_SIZE{PLAYER_LIST_MENU_SIZE.width * 0.8f, 180
 static constexpr float CELL_HEIGHT = 27.f;
 static constexpr CCSize CELL_SIZE{PLAYER_LIST_SIZE.width, CELL_HEIGHT};
 
-static constexpr CCSize FAR_BTN_SIZE { 45.f, 45.f };
+static constexpr CCSize FAR_BTN_SIZE { 35.f, 35.f };
 
 static constexpr float CONNECT_MENU_WIDTH = 260.f;
 
@@ -191,7 +191,7 @@ bool GlobedMenuLayer::init() {
 
     Build<cue::RepeatingBackground>::create("game_bg_01_001.png")
         .id("background")
-        .color({37, 50, 167})
+        .color({ 41, 41, 41 })
         .parent(this)
         .as<CCSprite>()
         .store(m_background);
@@ -211,7 +211,7 @@ bool GlobedMenuLayer::init() {
 
     m_connectMenuBg = cue::attachBackground(m_connectMenu, cue::BackgroundOptions {
         .opacity = 255,
-        .texture = "GJ_square01.png",
+        .texture = "GJ_square05.png",
     });
 
     auto serverFieldLayout = RowLayout::create()->setAutoScale(false);
@@ -224,8 +224,8 @@ bool GlobedMenuLayer::init() {
                 .store(m_serverNameLabel)
         )
         .child(
-            Build<CCSprite>::create("pencil.png"_spr)
-                .scale(0.7f)
+            Build<CCSprite>::create("pencil01.png"_spr)
+                .scale(0.35f)
                 .intoMenuItem([this] {
                     ServerListPopup::create(this)->show();
                 })
@@ -235,7 +235,7 @@ bool GlobedMenuLayer::init() {
         .updateLayout()
         .parent(m_connectMenu);
 
-    m_connectButton = Build<ButtonSprite>::create("Connect", "bigFont.fnt", "GJ_button_01.png", 0.7f)
+    m_connectButton = Build<ButtonSprite>::create("Connect", "bigFont.fnt", "GJ_button_01.png", 0.8f)
         .scale(0.9f)
         .intoMenuItem([this] {
             auto& sm = ServerManager::get();
@@ -257,6 +257,9 @@ bool GlobedMenuLayer::init() {
 
     // button menu
     auto buttonMenu = Build<CCMenu>::create()
+        .id("bottom-menu")
+        // .scale(0.75f)
+        // .posY(25.f)
         .contentSize(CONNECT_MENU_WIDTH, 40.f)
         .layout(RowLayout::create()->setAutoScale(false))
         .parent(m_connectMenu)
@@ -277,6 +280,8 @@ bool GlobedMenuLayer::init() {
     buttonMenu->updateLayout();
 
     // player list menu
+
+    m_background->setZOrder(-100);
 
     m_playerListMenu = Build<CCNode>::create()
         .id("player-list-menu")
@@ -854,7 +859,7 @@ std::vector<Ref<CCMenuItemSpriteExtra>> GlobedMenuLayer::createCommonButtons() {
         .intoMenuItem([this] {
             globed::quickPopup(
                 "Open Discord",
-                "Join our <cp>Discord</c> server?\n\n<cr>Important: By joining the Discord server, you agree to being at least 13 years of age.</c>",
+                "Join the conversation in our <cp>Discord</c> server?\n\n<cr>Important: By joining the Discord server, you agree to being able to use the service per your regions' age requirements.</c>",
                 "No", "Yes",
                 [](auto, bool btn2) {
                     if (btn2) {
@@ -1023,6 +1028,7 @@ void GlobedMenuLayer::setMenuState(MenuState state, bool force) {
             m_connectButton->setVisible(true);
             m_connStateLabel->setVisible(false);
             m_playerListMenu->setVisible(false);
+            m_background->setColor({41, 41, 41});
         } break;
 
         case MenuState::Connecting: {
@@ -1038,6 +1044,7 @@ void GlobedMenuLayer::setMenuState(MenuState state, bool force) {
             m_playerListMenu->setVisible(true);
             m_playerList->clear();
             m_hardRefresh = true;
+            m_background->setColor({37, 50, 167});
             this->requestRoomState();
         } break;
     }

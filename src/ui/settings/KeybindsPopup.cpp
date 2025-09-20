@@ -49,7 +49,7 @@ protected:
             .pos(-6.f, 2.f)
             .parent(this);
 
-        auto spr = Build<CCSprite>::create("pencil.png"_spr)
+        auto spr = Build<CCSprite>::create("icon-pencil.png"_spr)
             .collect();
 
         Build<CircleButtonSprite>::create(spr)

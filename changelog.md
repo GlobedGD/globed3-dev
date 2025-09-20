@@ -1,3 +1,12 @@
+## <cg>v2.0.0</c>
+
+(rewrite these for release)
+* revised support popup
+* edited connect screen to be more techy ig idk its grey now
+* settings sliders look better imo
+* added new button sprites
+* hawk tuah!
+
 ## v1.8.5
 
 * Fix crash when receiving a notice in the editor
@@ -16,7 +25,7 @@
 
 ## v1.8.3
 
-* fix mod not loading
+* Fix mod not loading
 
 ## v1.8.2
 
@@ -73,9 +82,9 @@
 
 For developers: Added an event based API to allow mod developers to implement better compatibility with Globed.
 
-* Currently not many functions are available, but the API will expand in the future
-* Feel free to suggest more features by making an issue or simply messaging me (dank_meme01) on Discord
-* Documentation is available [here](https://github.com/GlobedGD/globed2/blob/main/docs/api-docs.md)
+* Currently not many functions are available, but the API will expand in the future!
+* Feel free to suggest more features by making an issue or simply messaging me (@dank_meme01) on Discord
+* Documentation is available [here](https://github.com/GlobedGD/globed2/blob/main/docs/api-docs.md).
 
 ## v1.7.2
 

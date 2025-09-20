@@ -10,7 +10,7 @@
         "mac": "2.2074",
         "ios": "2.2074"
     },
-    "description": "Feature-rich multiplayer mod",
+    "description": "A feature-rich customizable multiplayer mod!",
     "dependencies": {
         "geode.node-ids": ">=v1.10.0",
         "alphalaneous.editortab_api": ">=1.0.17"
