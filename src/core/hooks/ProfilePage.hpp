@@ -22,7 +22,7 @@ struct GLOBED_MODIFY_ATTR HookedProfilePage : geode::Modify<HookedProfilePage, P
 	void loadPageFromUserInfo(GJUserScore* score);
 
 	void fetchUserRoles(int accountId);
-	void updateUserRoleIcon(const msg::FetchUserResponseMessage& msg);
+	void updateUserRoleIcon();
 };
 
 }

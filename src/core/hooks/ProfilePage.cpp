@@ -6,6 +6,8 @@
 
 #include <ui/misc/Badges.hpp>
 
+static inline std::unordered_map<int, std::vector<uint8_t>> playerRoles;
+
 using namespace geode::prelude;
 
 namespace globed {
@@ -14,9 +16,16 @@ void HookedProfilePage::loadPageFromUserInfo(GJUserScore* score) {
 	ProfilePage::loadPageFromUserInfo(score);
 
 	auto& nm = NetworkManagerImpl::get();
+	
+	if (playerRoles.contains(score->m_accountID)) {
+		m_fields->m_roles = playerRoles[score->m_accountID];
+		updateUserRoleIcon();
+		return;
+	}
 
 	m_fields->m_listener = nm.listen<msg::FetchUserResponseMessage>([this](const auto& msg) {
-		this->updateUserRoleIcon(msg);
+		m_fields->m_roles = std::move(msg.roles);
+		this->updateUserRoleIcon();
 		return ListenerResult::Stop;
 	});
 
@@ -33,10 +42,8 @@ void HookedProfilePage::fetchUserRoles(int accountId) {
 	nm.sendFetchUser(accountId);
 }
 
-void HookedProfilePage::updateUserRoleIcon(const msg::FetchUserResponseMessage& msg) {
+void HookedProfilePage::updateUserRoleIcon() {
 	auto fields = m_fields.self();
-
-	fields->m_roles = std::move(msg.roles);
 
 	cue::resetNode(fields->m_roleIcon);
 
@@ -47,12 +54,15 @@ void HookedProfilePage::updateUserRoleIcon(const msg::FetchUserResponseMessage& 
 
 		fields->m_roleIcon = createBadge(fields->m_roles[0]);
 
-		fields->m_roleIcon->setID("user-badge"_spr);
+		fields->m_roleIcon->setID("user-badge:1"_spr);
 		fields->m_roleIcon->setScale(0.65f);
 
 		usernameMenu->addChild(fields->m_roleIcon);
 		usernameMenu->updateLayout();
+
 	}
+
+	playerRoles[m_score->m_accountID] = fields->m_roles;
 }
 
 }
