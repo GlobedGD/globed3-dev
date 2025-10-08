@@ -58,7 +58,7 @@ void HookedProfilePage::updateUserRoleIcon() {
 
 		fields->m_roleIcon = createBadge(fields->m_roles[0]);
 
-		fields->m_roleIcon->setID("user-badge:1"_spr);
+		fields->m_roleIcon->setID("user-badge"_spr);
 		fields->m_roleIcon->setScale(0.65f);
 
 		usernameMenu->addChild(fields->m_roleIcon);
