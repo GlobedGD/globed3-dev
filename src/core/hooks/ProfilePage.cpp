@@ -3,6 +3,7 @@
 
 #include <core/net/NetworkManagerImpl.hpp>
 #include "globed/core/data/Messages.hpp"
+#include <globed/core/net/NetworkManager.hpp>
 
 #include <ui/misc/Badges.hpp>
 
@@ -14,6 +15,9 @@ namespace globed {
 
 void HookedProfilePage::loadPageFromUserInfo(GJUserScore* score) {
 	ProfilePage::loadPageFromUserInfo(score);
+
+	if (NetworkManager::get().getConnectionState() != ConnectionState::Connected)
+		return;
 
 	auto& nm = NetworkManagerImpl::get();
 	
@@ -62,7 +66,8 @@ void HookedProfilePage::updateUserRoleIcon() {
 
 	}
 
-	playerRoles[m_score->m_accountID] = fields->m_roles;
+	if (!playerRoles.contains(m_score->m_accountID))
+		playerRoles[m_score->m_accountID] = fields->m_roles;
 }
 
 }
