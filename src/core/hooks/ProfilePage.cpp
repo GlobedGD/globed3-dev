@@ -10,12 +10,6 @@ using namespace geode::prelude;
 
 namespace globed {
 
-bool HookedProfilePage::init(int accountId, bool ownProfile) {
-	if (!ProfilePage::init(accountId, ownProfile))
-		return false;
-	return true;
-}
-
 void HookedProfilePage::loadPageFromUserInfo(GJUserScore* score) {
 	ProfilePage::loadPageFromUserInfo(score);
 
