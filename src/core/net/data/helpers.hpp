@@ -1024,4 +1024,16 @@ $implEncode(const std::vector<EmbeddedScript>& scripts, game::SendLevelScriptMes
     }
 }
 
+/// fetch user response message
+
+$implDecode(msg::FetchUserResponseMessage, main::FetchUserResponseMessage::Reader& reader) {
+    msg::FetchUserResponseMessage out{};
+
+    out.accountId = reader.getAccountId();
+    out.found = reader.getFound();
+    out.roles = {reader.getRoles().begin(), reader.getRoles().end()};
+
+    return out;
+}
+
 }

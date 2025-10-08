@@ -131,6 +131,12 @@ struct LevelListMessage {
     std::vector<std::pair<SessionId, uint16_t>> levels;
 };
 
+struct FetchUserResponseMessage {
+	int accountId;
+	bool found;
+	std::vector<uint8_t> roles;
+};
+
 // Level data
 
 struct LevelDataMessage {

@@ -1256,6 +1256,13 @@ void NetworkManagerImpl::sendAdminUpdateUser(int32_t accountId, const std::strin
     });
 }
 
+void NetworkManagerImpl::sendFetchUser(int32_t accountId) {
+    this->sendToCentral([&](CentralMessage::Builder& msg) {
+        auto fetchUser = msg.initFetchUser();
+        fetchUser.setAccountId(accountId);
+    });
+}
+
 void NetworkManagerImpl::addListener(const std::type_info& ty, void* listener) {
     std::type_index index{ty};
     auto listeners = m_listeners.lock();
@@ -1577,6 +1584,11 @@ Result<> NetworkManagerImpl::onCentralDataReceived(CentralMessage::Reader& msg) 
         case CentralMessage::ADMIN_LOGS_RESPONSE: {
             this->invokeListeners(data::decodeUnchecked<msg::AdminLogsResponseMessage>(msg.getAdminLogsResponse()));
         } break;
+
+        case CentralMessage::FETCH_USER_RESPONSE: {
+            this->invokeListeners(data::decodeUnchecked<msg::FetchUserResponseMessage>(msg.getFetchUserResponse()));
+        } break;
+
 
         default: {
             return Err("Received unknown message type: {}", std::to_underlying(msg.which()));
