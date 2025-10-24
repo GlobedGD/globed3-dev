@@ -256,7 +256,7 @@ bool GlobedMenuLayer::init() {
         .parent(m_connectMenu);
 
     // button menu
-    auto buttonMenu = Build<CCMenu>::create()
+    m_bottomMenu = Build<CCMenu>::create()
         .id("bottom-menu")
         // .scale(0.75f)
         // .posY(25.f)
@@ -271,13 +271,13 @@ bool GlobedMenuLayer::init() {
             this->onSettings();
         })
         .scaleMult(1.1f)
-        .parent(buttonMenu);
+        .parent(m_bottomMenu);
 
     for (auto btn : this->createCommonButtons()) {
-        buttonMenu->addChild(btn);
+        m_bottomMenu->addChild(btn);
     }
 
-    buttonMenu->updateLayout();
+    m_bottomMenu->updateLayout();
 
     // player list menu
 
@@ -1028,6 +1028,7 @@ void GlobedMenuLayer::setMenuState(MenuState state, bool force) {
             m_connectButton->setVisible(true);
             m_connStateLabel->setVisible(false);
             m_playerListMenu->setVisible(false);
+            m_bottomMenu->setVisible(true);
             m_background->setColor({41, 41, 41});
         } break;
 
@@ -1037,6 +1038,7 @@ void GlobedMenuLayer::setMenuState(MenuState state, bool force) {
             m_connectButton->setVisible(false);
             m_connStateLabel->setVisible(true);
             m_playerListMenu->setVisible(false);
+            m_bottomMenu->setVisible(false);
         } break;
 
         case MenuState::Connected: {

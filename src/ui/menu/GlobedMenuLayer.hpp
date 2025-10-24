@@ -30,6 +30,7 @@ private:
     cocos2d::CCLabelBMFont* m_serverNameLabel;
     CCMenuItemSpriteExtra* m_connectButton;
     cocos2d::CCLabelBMFont* m_connStateLabel;
+    cocos2d::CCMenu* m_bottomMenu;
     MenuState m_state = MenuState::None;
 
     cocos2d::CCNode* m_playerListMenu;

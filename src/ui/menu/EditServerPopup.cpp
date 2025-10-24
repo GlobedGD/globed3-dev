@@ -6,29 +6,29 @@ using namespace geode::prelude;
 
 namespace globed {
 
-const CCSize EditServerPopup::POPUP_SIZE { 380.f, 240.f };
+const CCSize EditServerPopup::POPUP_SIZE { 290.f, 200.f };
 
 bool EditServerPopup::setup(bool adding, const std::string& name, const std::string& url) {
-    this->setTitle(adding ? "Add a new server" : "Edit server");
+    this->setTitle(adding ? "Add a new Server" : "Edit server");
 
-    Build<CCLabelBMFont>::create("Server Name", "bigFont.fnt")
-        .scale(0.3f)
-        .pos(this->fromTop(60.f))
+    Build<CCLabelBMFont>::create("Server Name", "goldFont.fnt")
+        .scale(0.5f)
+        .pos(this->fromTop(45.f))
         .parent(m_mainLayer);
 
-    m_nameInput = Build(TextInput::create(320.f, "Server Name"))
-        .pos(this->fromTop(80.f))
+    m_nameInput = Build(TextInput::create(260.f, "Server Name"))
+        .pos(this->fromTop(70.f))
         .parent(m_mainLayer);
 
     m_nameInput->setString(name);
 
-    Build<CCLabelBMFont>::create("Server URL", "bigFont.fnt")
-        .scale(0.3f)
-        .pos(this->fromTop(120.f))
+    Build<CCLabelBMFont>::create("Server URL", "goldFont.fnt")
+        .scale(0.5f)
+        .pos(this->fromTop(105.f))
         .parent(m_mainLayer);
 
-    m_urlInput = Build(TextInput::create(320.f, "Server URL", "chatFont.fnt"))
-        .pos(this->fromTop(140.f))
+    m_urlInput = Build(TextInput::create(260.f, "Server URL", "chatFont.fnt"))
+        .pos(this->fromTop(130.f))
         .parent(m_mainLayer);
 
     m_urlInput->setCommonFilter(CommonFilter::Any);

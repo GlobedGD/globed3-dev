@@ -12,7 +12,7 @@ void TitleSettingCell::setup() {
     m_infoButton = nullptr;
 
     Build<CCLabelBMFont>::create(m_name, "goldFont.fnt")
-        .scale(0.7f)
+        .scale(0.75f)
         .pos(m_size / 2.f)
         .parent(this);
 }
