@@ -33,7 +33,6 @@ AudioManager::AudioManager()
 
     // initializing COM is not necessary as FMOD will do it on its own, but FMOD docs recommend doing it anyway.
     m_thread.setStartFunction([] {
-        geode::utils::thread::setName("Audio Thread");
 #ifdef GEODE_IS_WINDOWS
         auto result = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
         if (result != S_OK) {
@@ -48,6 +47,7 @@ AudioManager::AudioManager()
     });
 #endif
 
+    m_thread.setName("Audio Thread");
     m_thread.start(this);
 
     m_recordDevice = AudioRecordingDevice{.id = -1};
@@ -55,6 +55,11 @@ AudioManager::AudioManager()
 
 AudioManager::~AudioManager() {
     m_thread.stopAndWait();
+
+    for (auto& [_, stream] : m_playbackStreams) {
+        // crash fix :p
+        std::ignore = stream.release();
+    }
 }
 
 void AudioManager::preInitialize() {
@@ -186,7 +191,7 @@ void AudioManager::setRecordBufferCapacity(size_t frames) {
 }
 
 Result<> AudioManager::startRecordingEncoded(
-    std::function<void(const EncodedAudioFrame&)>&& encodedCallback
+    std23::move_only_function<void(const EncodedAudioFrame&)>&& encodedCallback
 ) {
     GEODE_UNWRAP(this->startRecordingInternal());
     m_callback = std::move(encodedCallback);
@@ -196,7 +201,7 @@ Result<> AudioManager::startRecordingEncoded(
 }
 
 Result<> AudioManager::startRecordingRaw(
-    std::function<void(const float*, size_t)>&& rawCallback
+    std23::move_only_function<void(const float*, size_t)>&& rawCallback
 ) {
     GEODE_UNWRAP(this->startRecordingInternal());
     m_rawCallback = std::move(rawCallback);
@@ -372,10 +377,31 @@ FMOD::System* AudioManager::getSystem() {
     return m_system;
 }
 
+void AudioManager::forEachStream(std23::function_ref<void(int, AudioStream&)> func) {
+    for (auto& [id, stream] : m_playbackStreams) {
+        func(id, *stream);
+    }
+}
+
+AudioStream* AudioManager::getStream(int streamId) {
+    auto it = m_playbackStreams.find(streamId);
+    if (it == m_playbackStreams.end()) {
+        return nullptr;
+    }
+
+    return it->second.get();
+}
+
 Result<> AudioManager::playFrameStreamed(int streamId, const EncodedAudioFrame& frame) {
     auto stream = this->preparePlaybackStream(streamId);
 
     return stream->writeData(frame);
+}
+
+void AudioManager::playFrameStreamedRaw(int streamId, const float* pcm, size_t samples) {
+    auto stream = this->preparePlaybackStream(streamId);
+
+    stream->writeData(pcm, samples);
 }
 
 AudioStream* AudioManager::preparePlaybackStream(int id) {
@@ -412,7 +438,7 @@ float AudioManager::getStreamVolume(int streamId) {
         return 0.0f;
     }
 
-    return it->second->getVolume();
+    return it->second->getUserVolume();
 }
 
 float AudioManager::getStreamLoudness(int streamId) {
@@ -425,17 +451,15 @@ float AudioManager::getStreamLoudness(int streamId) {
 
 void AudioManager::setStreamVolume(int streamId, float volume) {
     auto it = m_playbackStreams.find(streamId);
+
     if (it != m_playbackStreams.end()) {
-        it->second->setVolume(volume, m_deafen ? 0.f : m_playbackVolume);
+        it->second->setUserVolume(volume, m_globalPlaybackLayer);
     }
 }
 
 void AudioManager::setGlobalPlaybackVolume(float volume) {
-    m_playbackVolume = volume;
-
-    for (auto& [id, stream] : m_playbackStreams) {
-        stream->setVolume(stream->getVolume(), m_deafen ? 0.f : volume);
-    }
+    m_playbackLayer = volume;
+    this->updatePlaybackVolume();
 }
 
 bool AudioManager::isStreamActive(int streamId) {
@@ -445,15 +469,19 @@ bool AudioManager::isStreamActive(int streamId) {
 
 void AudioManager::setDeafen(bool deafen) {
     m_deafen = deafen;
-    float pb = deafen ? 0.0f : m_playbackVolume;
-
-    for (auto& [id, stream] : m_playbackStreams) {
-        stream->setVolume(stream->getVolume(), pb);
-    }
+    this->updatePlaybackVolume();
 }
 
 bool AudioManager::getDeafen() {
     return m_deafen;
+}
+
+void AudioManager::updatePlaybackVolume() {
+    m_globalPlaybackLayer = m_playbackLayer * (m_deafen ? 0.f : 1.f);
+
+    for (auto& [id, stream] : m_playbackStreams) {
+        stream->setUserVolume(stream->getUserVolume(), m_globalPlaybackLayer);
+    }
 }
 
 // Thread stuff
@@ -562,10 +590,17 @@ Result<> AudioManager::audioThreadWork() {
     );
 
     if (m_recordingRaw) {
-        // raw recording, call the raw callback with the pcm data directly.
-        float* pcm = m_recordQueue.data();
         size_t samples = m_recordQueue.size();
-        this->recordInvokeRawCallback(pcm, samples);
+
+        // raw recording, call the raw callback with the pcm data directly.
+        if (auto pcm = m_recordQueue.contiguousData()) {
+            this->recordInvokeRawCallback(*pcm, samples);
+        } else {
+            auto pcmdata = std::make_unique<float[]>(samples);
+            m_recordQueue.readData(pcmdata.get(), samples);
+            this->recordInvokeRawCallback(pcmdata.get(), samples);
+        }
+
         m_recordQueue.clear();
     } else {
         bool stoppedPassive = m_recordingPassive && !m_recordingPassiveActive;
@@ -599,7 +634,7 @@ void AudioManager::recordInvokeCallback() {
     m_recordFrame.clear();
 }
 
-void AudioManager::recordInvokeRawCallback(float* pcm, size_t samples) {
+void AudioManager::recordInvokeRawCallback(const float* pcm, size_t samples) {
     if (samples == 0) return;
 
     if (m_rawCallback) m_rawCallback(pcm, samples);

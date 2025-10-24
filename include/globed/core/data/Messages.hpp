@@ -5,6 +5,7 @@
 #include "PlayerState.hpp"
 #include "PlayerDisplayData.hpp"
 #include "RoomListingInfo.hpp"
+#include "FeaturedLevel.hpp"
 #include "UserRole.hpp"
 #include "Event.hpp"
 #include "RoomTeam.hpp"
@@ -24,6 +25,28 @@ struct CentralLoginOkMessage {
     std::vector<UserRole> userRoles;
     std::optional<MultiColor> nameColor;
     ModPermissions perms;
+    std::optional<FeaturedLevelMeta> featuredLevel;
+};
+
+// Banned
+
+struct BannedMessage {
+    std::string reason;
+    int64_t expiresAt;
+};
+
+// Muted
+
+struct MutedMessage {
+    std::string reason;
+    int64_t expiresAt;
+};
+
+// Room banned
+
+struct RoomBannedMessage {
+    std::string reason;
+    int64_t expiresAt;
 };
 
 // Rooms
@@ -33,6 +56,7 @@ struct RoomStateMessage {
     int32_t roomOwner;
     std::string roomName;
     std::vector<RoomPlayer> players;
+    uint32_t playerCount;
     RoomSettings settings;
     std::vector<RoomTeam> teams;
     uint32_t passcode;
@@ -115,6 +139,7 @@ struct NoticeMessage {
     std::string senderName;
     std::string message;
     bool canReply;
+    bool isReply;
 };
 
 struct PlayerCountsMessage {
@@ -174,6 +199,20 @@ struct DiscordLinkAttemptMessage {
     std::string avatarUrl;
 };
 
+// Featured level
+
+struct FeaturedLevelMessage {
+    std::optional<FeaturedLevelMeta> meta;
+};
+
+// Featured list
+
+struct FeaturedListMessage {
+    std::vector<FeaturedLevelMeta> levels;
+    uint32_t page;
+    uint32_t totalPages;
+};
+
 // User data changed
 
 struct UserDataChangedMessage {
@@ -181,6 +220,10 @@ struct UserDataChangedMessage {
     std::optional<MultiColor> nameColor;
     ModPermissions perms;
 };
+
+// Chat not permitted
+
+struct ChatNotPermittedMessage {};
 
 // Admin
 

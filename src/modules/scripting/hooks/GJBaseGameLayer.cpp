@@ -60,7 +60,7 @@ void SCBaseGameLayer::postInit(const std::vector<EmbeddedScript>& scripts) {
         nm.queueLevelScript(scripts);
 
         auto gjbgl = GlobedGJBGL::get(this);
-        gjbgl->customSchedule("2p-send-log-request", [this](GlobedGJBGL*, float dt) {
+        gjbgl->customSchedule("2p-send-log-request"_spr, [this](GlobedGJBGL*, float dt) {
             this->sendLogRequest(dt);
         }, 1.0f);
     }
@@ -375,17 +375,6 @@ void SCBaseGameLayer::handleEvent(const InEvent& event) {
 
         this->customFollowPlayerRot(data.player, data.group, data.center, data.enable);
     }
-
-
-    // auto it = fields.m_customListeners.find(event.type);
-    // if (it == fields.m_customListeners.end()) {
-    //     return;
-    // }
-
-    // for (auto groupId : it->second) {
-    //     // TODO: figure out the arguments to pass
-    //     this->spawnGroup(groupId, true, 0.0, {}, 0, 0);
-    // }
 }
 
 void SCBaseGameLayer::addEventListener(const ListenEventPayload& obj) {

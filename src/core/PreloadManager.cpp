@@ -1,4 +1,5 @@
 #include "PreloadManager.hpp"
+#include <globed/prelude.hpp>
 #include <globed/util/SpinLock.hpp>
 #include <globed/core/SettingsManager.hpp>
 #include <asp/fs.hpp>
@@ -74,6 +75,32 @@ struct HookedFileUtils : public CCFileUtils {
         }
     }
 };
+
+static std::string_view relativizeIconPath(std::string_view fullpath) {
+    auto countSlashes = [](std::string_view sv) {
+        return std::count_if(sv.begin(), sv.end(), [](char c) { return c == '/' || c == '\\'; });
+    };
+
+    while (countSlashes(fullpath) > 1) {
+        auto slashPos = fullpath.find_first_of("/\\");
+        GLOBED_ASSERT(slashPos != std::string::npos);
+
+        fullpath = fullpath.substr(slashPos + 1);
+    }
+
+    // now there is <= 1 slash! if this is the `icons/` subfolder, keep it
+    // otherwise remove that part
+    if (fullpath.starts_with("icons/") || fullpath.starts_with("icons\\")) {
+        return fullpath;
+    } else {
+        auto slashPos = fullpath.find_first_of("/\\");
+        if (slashPos != fullpath.npos) {
+            return fullpath.substr(slashPos + 1);
+        } else {
+            return fullpath;
+        }
+    }
+}
 
 // mutex that guards ccfileutils file reading
 static asp::Mutex<> g_fileMutex;
@@ -300,7 +327,7 @@ void PreloadManager::doLoadBatch(std::vector<Item>& items) {
     log::debug("PreloadManager: initialized {} textures in {}, adding frames", inited, timePreInit.elapsed().toString());
     auto timePreFrames = Instant::now();
 
-    // TODO: bring over the pugixml sprite frame parsing code from blaze
+    // TODO: bring over the pugixml sprite frame parsing code from blaze?
 
     for (size_t i = 0; i < itemStates.size(); i++) {
         pool.pushTask([i, &itemStates] {
@@ -318,7 +345,7 @@ void PreloadManager::doLoadBatch(std::vector<Item>& items) {
             auto& loaded = self.m_loadedFrames;
 
             if (std::find(loaded.begin(), loaded.end(), plistKey) != loaded.end()) {
-                log::debug("PreloadManager: already loaded frames for '{}', skipping", state.item.image);
+                log::info("PreloadManager: already loaded frames for '{}', skipping", state.item.image);
                 return;
             }
 
@@ -333,9 +360,12 @@ void PreloadManager::doLoadBatch(std::vector<Item>& items) {
 
                 dict = CCDictionary::createWithContentsOfFileThreadSafe(fullPlistPath.c_str());
                 if (!dict) {
-                    log::debug("PreloadManager: dict is nullptr for {}, trying slower fallback option", fullPlistPath);
-                    auto fallbackPath = self.fullPathForFilename(fullPlistPath);
-                    log::debug("PreloadManager: attempted fallback: {}", fallbackPath);
+                    log::info("PreloadManager: dict is nullptr for {}, trying slower fallback option", fullPlistPath);
+
+                    std::string_view attemptedPlist = relativizeIconPath(fullPlistPath);
+
+                    auto fallbackPath = self.fullPathForFilename(attemptedPlist);
+                    log::info("PreloadManager: attempted fallback: {}", fallbackPath);
                     dict = CCDictionary::createWithContentsOfFileThreadSafe(fallbackPath.c_str());
                 }
             }
@@ -431,6 +461,7 @@ void PreloadManager::enterContext(PreloadContext context) {
 
     // if we are reloading textures, everything must be reset
     if (context == PreloadContext::Reloading) {
+        log::info("PreloadManager: resetting state due to texture reload");
         m_iconsLoaded = false;
         m_deathEffectsLoaded = false;
         m_loadedFrames.clear();
@@ -536,7 +567,8 @@ gd::string PreloadManager::fullPathForFilename(std::string_view input, bool igno
         filename = input;
     }
 
-    // TODO: we disregard CCFileUtils m_pFilenameLookupDict / getNewFilename() here
+    // we disregard CCFileUtils m_pFilenameLookupDict / getNewFilename() here,
+    // no one uses it anyway fortunately
 
     std::string fullpath;
     auto& searchPaths = fu.getSearchPaths();
@@ -572,7 +604,7 @@ gd::string PreloadManager::fullPathForFilename(std::string_view input, bool igno
     return filename;
 }
 
-static TextureQuality getTextureQuality() {
+TextureQuality getTextureQuality() {
     float sf = CCDirector::get()->getContentScaleFactor();
     if (sf >= 4.f) {
         return TextureQuality::High;

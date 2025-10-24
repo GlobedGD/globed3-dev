@@ -53,7 +53,7 @@ void NameLabel::updateName(const char* name) {
             .parent(m_labelContainer)
             .store(m_label);
 
-        Build<CCLabelBMFont>::create("", m_font)
+        Build<Label>::create("", m_font)
             .zOrder(-2)
             .color(0, 0, 0)
             .anchorPoint(0.f, 0.0f)
@@ -102,18 +102,14 @@ void NameLabel::onClick(CCMenuItemSpriteExtra* btn) {
 }
 
 void NameLabel::updateTeam(size_t idx, cocos2d::ccColor4B color) {
-    // TODO: make this an option
-
-    bool colorbmode = false;
-
-    if (!colorbmode) {
+    if (!globed::setting<bool>("core.ui.colorblind-mode")) {
         if (m_label) {
             m_label->setColor(cue::into<ccColor3B>(color));
             m_label->setOpacity(color.a);
         }
     } else {
         if (!m_teamLabel) {
-            m_teamLabel = Build<CCLabelBMFont>::create("", "bigFont.fnt")
+            m_teamLabel = Build<Label>::create("", "bigFont.fnt")
                 .parent(m_badgeContainer);
         }
 
@@ -168,6 +164,12 @@ void NameLabel::updateWithRoles(const SpecialUserData& data) {
     this->resizeBadgeContainer();
 }
 
+void NameLabel::updateNoRoles() {
+    this->removeAllBadges();
+    this->updateColor({255, 255, 255});
+    this->resizeBadgeContainer();
+}
+
 void NameLabel::addBadge(cocos2d::CCSprite* badge) {
     m_badgeContainer->addChild(badge);
 
@@ -192,6 +194,10 @@ void NameLabel::resizeBadgeContainer() {
     }
 
     width += (elems - 1) * 3.f;
+
+    if (elems == 0) {
+        width = 0.f;
+    }
 
     m_badgeContainer->setContentWidth(width);
     m_badgeContainer->updateLayout();
@@ -228,15 +234,15 @@ void NameLabel::updateOpacity(unsigned char opacity) {
     }
 }
 
-void NameLabel::makeClickable(std::function<void(CCMenuItemSpriteExtra*)> callback) {
-    m_callback = callback;
+void NameLabel::makeClickable(std23::move_only_function<void(CCMenuItemSpriteExtra*)> callback) {
+    m_callback = std::move(callback);
     m_labelButton->setEnabled(true);
 }
 
 void NameLabel::setMultipleBadges(bool multiple) {
     m_multipleBadges = multiple;
 
-    // TODO
+    // TODO (low) impl
 }
 
 void NameLabel::setShadowEnabled(bool enabled) {

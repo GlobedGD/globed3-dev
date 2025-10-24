@@ -1,7 +1,5 @@
 #pragma once
 
-#include <qunet/Connection.hpp>
-#include <Geode/Result.hpp>
 #include <globed/audio/EncodedAudioFrame.hpp>
 #include <globed/core/SessionId.hpp>
 #include <globed/core/data/PlayerState.hpp>
@@ -9,14 +7,18 @@
 #include <globed/core/data/UserRole.hpp>
 #include <globed/core/data/AdminLogs.hpp>
 #include <globed/core/data/Event.hpp>
+#include <globed/core/data/FeaturedLevel.hpp>
 #include <globed/core/data/ModPermissions.hpp>
 #include <globed/core/net/MessageListener.hpp>
+#include <globed/util/FunctionQueue.hpp>
 #include <modules/scripting/data/EmbeddedScript.hpp>
-#include <typeindex>
 
 #include <capnp/message.h>
 #include <capnp/serialize-packed.h>
 #include "data/generated.hpp"
+#include <qunet/Connection.hpp>
+#include <Geode/Result.hpp>
+#include <typeindex>
 
 namespace globed {
 
@@ -63,6 +65,7 @@ struct ConnectionInfo {
     bool m_gameEstablished = false;
 
     uint32_t m_gameTickrate = 0;
+    std::optional<FeaturedLevelMeta> m_featuredLevel;
     std::vector<UserRole> m_allRoles;
     std::vector<UserRole> m_userRoles;
     std::vector<uint8_t> m_userRoleIds;
@@ -88,6 +91,7 @@ public:
 
     geode::Result<> connectCentral(std::string_view url);
     geode::Result<> disconnectCentral();
+    geode::Result<> cancelConnection();
 
     qn::ConnectionState getConnState(bool game);
 
@@ -130,13 +134,23 @@ public:
     void invalidateFriendList();
     void markAuthorizedModerator();
 
+    /// Get the ID of the current featured level on this server
+    std::optional<FeaturedLevelMeta> getFeaturedLevel();
+    bool hasViewedFeaturedLevel();
+    void setViewedFeaturedLevel();
+
     // Message sending functions
 
     // Central server
+    void sendUpdateUserSettings();
     void sendRoomStateCheck();
     void sendRequestRoomPlayers(const std::string& nameFilter);
     void sendRequestGlobalPlayerList(const std::string& nameFilter);
     void sendRequestLevelList();
+    void sendRequestPlayerCounts(const std::vector<uint64_t>& sessions);
+    void sendRequestPlayerCounts(std::span<const uint64_t> sessions);
+    void sendRequestPlayerCounts(std::span<const SessionId> sessions);
+    void sendRequestPlayerCounts(uint64_t session);
     void sendCreateRoom(const std::string& name, uint32_t passcode, const RoomSettings& settings);
     void sendJoinRoom(uint32_t id, uint32_t passcode = 0);
     void sendJoinRoomByToken(uint64_t token);
@@ -154,6 +168,18 @@ public:
     void sendGetDiscordLinkState();
     void sendSetDiscordPairingState(bool state);
     void sendDiscordLinkConfirm(int64_t id, bool confirm);
+    void sendGetFeaturedList(uint32_t page);
+    void sendGetFeaturedLevel();
+    void sendSendFeaturedLevel(
+        int32_t levelId,
+        const std::string& levelName,
+        int32_t authorId,
+        const std::string& authorName,
+        uint8_t rateTier,
+        const std::string& note,
+        bool queue
+    );
+    void sendNoticeReply(int32_t recipientId, const std::string& message);
 
     void sendAdminLogin(const std::string& password);
     void sendAdminKick(int32_t accountId, const std::string& message);
@@ -171,6 +197,7 @@ public:
     void sendAdminSetPassword(int32_t accountId, const std::string& password);
     void sendAdminUpdateUser(int32_t accountId, const std::string& username, int16_t cube, uint16_t color1, uint16_t color2, uint16_t glowColor);
     void sendAdminFetchMods();
+    void sendAdminSetWhitelisted(int32_t accountId, bool whitelisted);
 
     // Both servers
     void sendJoinSession(SessionId id, bool platformer);
@@ -209,6 +236,10 @@ public:
     void removeListener(const std::type_info& ty, void* listener);
 
 private:
+    enum AuthKind {
+        Utoken, Argon, Plain
+    };
+
     qn::Connection m_centralConn;
     qn::Connection m_gameConn;
 
@@ -221,7 +252,7 @@ private:
     asp::Notify m_disconnectNotify;
     asp::AtomicBool m_disconnectRequested;
     asp::AtomicBool m_manualDisconnect = false;
-    asp::Mutex<std::string> m_abortCause;
+    asp::Mutex<std::pair<std::string, bool>> m_abortCause;
     asp::Notify m_finishedClosingNotify;
     bool m_destructing = false;
     bool m_hasSecure = false;
@@ -234,8 +265,53 @@ private:
     void onCentralDisconnected();
     geode::Result<> onCentralDataReceived(CentralMessage::Reader& msg);
     geode::Result<> onGameDataReceived(GameMessage::Reader& msg);
-    void sendToCentral(std::function<void(CentralMessage::Builder&)> func);
-    void sendToGame(std::function<void(GameMessage::Builder&)> func, bool reliable = true);
+
+    static Result<> sendMessageToConnection(qn::Connection& conn, capnp::MallocMessageBuilder& msg, bool reliable, bool uncompressed) {
+        if (!conn.connected()) {
+            return Err("not connected");
+        }
+
+        size_t unpackedSize = capnp::computeSerializedSizeInWords(msg) * 8;
+        qn::HeapByteWriter writer;
+        writer.writeVarUint(unpackedSize).unwrap();
+        auto unpSizeBuf = writer.written();
+
+        kj::VectorOutputStream vos;
+        vos.write(unpSizeBuf.data(), unpSizeBuf.size());
+        capnp::writePackedMessage(vos, msg);
+
+        auto data = std::vector<uint8_t>(vos.getArray().begin(), vos.getArray().end());
+
+        conn.sendData(std::move(data), reliable, uncompressed);
+
+        return Ok();
+    }
+
+    template <typename F>
+    void sendToCentral(F&& func) {
+        capnp::MallocMessageBuilder msg;
+        auto root = msg.initRoot<CentralMessage>();
+        func(root);
+
+        auto res = sendMessageToConnection(m_centralConn, msg, true, false);
+
+        if (!res) {
+            log::warn("Failed to send message to central server: {}", res.unwrapErr());
+        }
+    }
+
+    template <typename F>
+    void sendToGame(F&& func, bool reliable = true, bool uncompressed = false) {
+        capnp::MallocMessageBuilder msg;
+        auto root = msg.initRoot<GameMessage>();
+        func(root);
+
+        auto res = sendMessageToConnection(m_gameConn, msg, reliable, uncompressed);
+
+        if (!res) {
+            log::warn("Failed to send message to game server: {}", res.unwrapErr());
+        }
+    }
 
     void disconnectInner();
     void resetGameVars();
@@ -245,15 +321,18 @@ private:
     void setUToken(std::string token);
     void clearUToken();
 
+    // Returns the last known featured level ID on this server
+    int32_t getLastFeaturedLevelId();
+    void setLastFeaturedLevelId(int32_t id);
+
     std::vector<uint8_t> computeUident(int accountId);
 
     void tryAuth();
-    void doArgonAuth(std::string token);
-    void abortConnection(std::string reason);
+    void sendCentralAuth(AuthKind kind, const std::string& token = "");
+    void abortConnection(std::string reason, bool silent = false);
 
     void joinSessionWith(std::string_view serverUrl, SessionId id, bool platformer);
-    void sendGameLoginJoinRequest(SessionId id, bool platformer);
-    void sendGameLoginRequest();
+    void sendGameLoginRequest(SessionId id = SessionId{}, bool platformer = false);
     void sendGameJoinRequest(SessionId id, bool platformer);
 
     // Handlers for messages
@@ -283,7 +362,7 @@ private:
         }
 
         if (hasThreadUnsafe) {
-            geode::Loader::get()->queueInMainThread([this, message = std::forward<T>(message)]() mutable {
+            FunctionQueue::get().queue([this, message = std::forward<T>(message)]() mutable {
                 this->invokeUnchecked(std::forward<T>(message));
             });
         } else {

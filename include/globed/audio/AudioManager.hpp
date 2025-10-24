@@ -5,6 +5,8 @@
 #include "AudioStream.hpp"
 #include <globed/prelude.hpp>
 
+#include <std23/move_only_function.h>
+#include <std23/function_ref.h>
 #include <asp/sync.hpp>
 #include <asp/thread.hpp>
 #include <fmod.hpp>
@@ -62,8 +64,8 @@ public:
     // start recording the voice and call the callback whenever new data is ready.
     // same rules apply as with `startRecording`, except the callback includes raw PCM samples,
     // and is called much more often.
-    Result<> startRecordingEncoded(std::function<void(const EncodedAudioFrame&)>&& encodedCallback);
-    Result<> startRecordingRaw(std::function<void(const float*, size_t)>&& rawCallback);
+    Result<> startRecordingEncoded(std23::move_only_function<void(const EncodedAudioFrame&)>&& encodedCallback);
+    Result<> startRecordingRaw(std23::move_only_function<void(const float*, size_t)>&& rawCallback);
     // tell the audio thread to stop recording
     void stopRecording();
     // tell the audio thread to stop recording, don't call the callback with leftover data
@@ -75,17 +77,24 @@ public:
 
     void resumePassiveRecording();
     void pausePassiveRecording();
+    inline bool isPassiveRecording() { return m_recordingPassiveActive; }
 
     /* Playback API */
 
+    void forEachStream(std23::function_ref<void(int, AudioStream&)> func);
+    AudioStream* getStream(int streamId);
+
     Result<> playFrameStreamed(int streamId, const EncodedAudioFrame& frame);
+    void playFrameStreamedRaw(int streamId, const float* pcm, size_t samples);
     void stopAllOutputStreams();
     void stopOutputStream(int streamId);
+
+    bool isStreamActive(int streamId);
     float getStreamVolume(int streamId);
     float getStreamLoudness(int streamId);
     void setStreamVolume(int streamId, float volume);
+
     void setGlobalPlaybackVolume(float volume);
-    bool isStreamActive(int streamId);
     void setDeafen(bool deafen);
     bool getDeafen();
 
@@ -119,8 +128,8 @@ private:
     asp::AtomicBool m_recordingPassiveActive = false;
     FMOD::Sound* m_recordSound = nullptr;
     size_t m_recordChunkSize = 0;
-    std::function<void(const EncodedAudioFrame&)> m_callback;
-    std::function<void(const float*, size_t)> m_rawCallback;
+    std23::move_only_function<void(const EncodedAudioFrame&)> m_callback;
+    std23::move_only_function<void(const float*, size_t)> m_rawCallback;
     AudioSampleQueue m_recordQueue;
     unsigned int m_recordLastPosition = 0;
     EncodedAudioFrame m_recordFrame;
@@ -137,14 +146,16 @@ private:
     Result<> startRecordingInternal();
     void internalStopRecording(bool ignoreErrors = false);
     void recordInvokeCallback();
-    void recordInvokeRawCallback(float* pcm, size_t samples);
+    void recordInvokeRawCallback(const float* pcm, size_t samples);
 
     /* playback */
     std::unordered_map<int, std::unique_ptr<AudioStream>> m_playbackStreams;
-    float m_playbackVolume = 1.0f;
+    VolumeLayer m_playbackLayer;
     bool m_deafen = false;
+    VolumeLayer m_globalPlaybackLayer;
 
     AudioStream* preparePlaybackStream(int id);
+    void updatePlaybackVolume();
 };
 
 }

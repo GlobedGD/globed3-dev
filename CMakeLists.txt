@@ -16,13 +16,16 @@ project(globed2 VERSION 1.0.0)
 
 # Options
 option(GLOBED_VOICE_SUPPORT "Enable voice chat support" ON)
+option(GLOBED_QUIC_SUPPORT "Enable QUIC support" ON)
+option(GLOBED_ADVANCED_DNS_SUPPORT "Enable advanced DNS support" ON)
 option(GLOBED_DEBUG "Enable debug mode" OFF)
-option(GLOBED_DEBUG_INTERPOLATION "Enable interpolation debugging, adds a TON of extra logs, and some visual elements" OFF)
+option(GLOBED_RELEASE "Enable release mode optimizations" OFF)
 option(GLOBED_OSS_BUILD "Open source build that does not require closed-source dependencies" OFF)
 option(GLOBED_MODULE_GLOBAL_TRIGGERS "Global triggers module" OFF)
 option(GLOBED_MODULE_SCRIPTING "Scripting module" OFF)
 option(GLOBED_MODULE_SCRIPTING_UI "Scripting UI module" OFF)
 option(GLOBED_MODULE_TCD_HNS "" OFF)
+set(GLOBED_DEFAULT_MAIN_SERVER_URL "qunet://globed.dev" CACHE STRING "Default main server URL")
 
 # Configure platform sources
 if (ANDROID)
@@ -100,16 +103,18 @@ add_subdirectory($ENV{GEODE_SDK} ${CMAKE_CURRENT_BINARY_DIR}/geode)
 
 setup_geode_mod(${PROJECT_NAME})
 
+# Setup release stuff
+
+if (GLOBED_RELEASE)
+    set(CMAKE_INTERPROCEDURAL_OPTIMIZATION ON)
+endif()
+
 # Setup compile definitions
 
 if (GLOBED_DEBUG)
     target_compile_definitions(${PROJECT_NAME} PUBLIC GLOBED_DEBUG)
     set(QUNET_DEBUG ON)
     message(STATUS "Building Globed with debug support")
-endif()
-
-if (GLOBED_DEBUG_INTERPOLATION)
-    target_compile_definitions(${PROJECT_NAME} PUBLIC GLOBED_DEBUG_INTERPOLATION)
 endif()
 
 if (GLOBED_MODULE_SCRIPTING_UI)
@@ -128,6 +133,8 @@ if (GLOBED_VOICE_SUPPORT)
     endif()
 endif()
 
+target_compile_definitions(${PROJECT_NAME} PRIVATE GLOBED_DEFAULT_MAIN_SERVER_URL="${GLOBED_DEFAULT_MAIN_SERVER_URL}")
+
 # Dependencies
 CPMAddPackage(
     NAME capnproto
@@ -138,14 +145,23 @@ CPMAddPackage(
             "WITH_FIBERS OFF"
 )
 
-CPMAddPackage("gh:GlobedGD/server-shared#5ee87fe")
-CPMAddPackage("gh:dankmeme01/qunet-cpp#aa632417")
-CPMAddPackage("gh:dankmeme01/uibuilder#456706b")
-CPMAddPackage("gh:dankmeme01/cue#b86dd10")
+CPMAddPackage("gh:GlobedGD/server-shared#5c2c72cb")
+CPMAddPackage(
+    NAME qunet-cpp
+    GIT_REPOSITORY "https://github.com/dankmeme01/qunet-cpp"
+    GIT_TAG "76c8d278"
+    OPTIONS "QUNET_QUIC_SUPPORT ${GLOBED_QUIC_SUPPORT}"
+            "QUNET_ADVANCED_DNS ${GLOBED_ADVANCED_DNS_SUPPORT}"
+            "QUNET_DEBUG ${GLOBED_DEBUG}"
+)
+CPMAddPackage("gh:dankmeme01/uibuilder#456706b") # note: before bumping this, fix NameLabel (and potentially more) where Build(x) is done where x may have a parent sill
+CPMAddPackage("gh:dankmeme01/cue#c73aaa0b")
 CPMAddPackage("gh:GlobedGD/argon@1.1.9")
 CPMAddPackage("gh:Prevter/sinaps#2541d6d")
 CPMAddPackage("gh:Prevter/AdvancedLabel#d78d7f82")
-CPMAddPackage("gh:dankmeme01/asp2#b8536532")
+# CPMAddPackage("gh:dankmeme01/asp2#c0f3d6ea") # qunet :p
+
+target_compile_definitions(${PROJECT_NAME} PUBLIC UIBUILDER_NO_ARROW=1)
 
 if (GLOBED_VOICE_SUPPORT)
     CPMAddPackage("gh:xiph/opus#v1.5.2")

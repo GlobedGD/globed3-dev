@@ -1,10 +1,14 @@
 #include "SettingsLayer.hpp"
-#include "BoolSettingCell.hpp"
-#include "FloatSettingCell.hpp"
-#include "TitleSettingCell.hpp"
-#include "ButtonSettingCell.hpp"
+#include "AudioDeviceSetupPopup.hpp"
+#include "cells/BoolSettingCell.hpp"
+#include "cells/FloatSettingCell.hpp"
+#include "cells/TitleSettingCell.hpp"
+#include "cells/ButtonSettingCell.hpp"
+#include "cells/IntSliderSettingCell.hpp"
+#include "cells/IntCornerSettingCell.hpp"
 #include "DiscordLinkPopup.hpp"
 #include "KeybindsPopup.hpp"
+#include "SaveSlotSwitcherPopup.hpp"
 #include <globed/core/PopupManager.hpp>
 #include <core/net/NetworkManagerImpl.hpp>
 
@@ -25,6 +29,44 @@ bool SettingsLayer::init() {
     m_list->setAutoUpdate(false);
 
     this->addSettings();
+
+    auto rightMenu = Build<CCMenu>::create()
+        .layout(ColumnLayout::create()->setAxisAlignment(AxisAlignment::Start))
+        .anchorPoint(1.f, 0.f)
+        .pos(winSize.width - 8.f, 8.f)
+        .contentSize(48.f, winSize.height)
+        .id("right-side-menu")
+        .parent(this)
+        .collect();
+
+    // Reset settings button
+    auto resetBtn = Build<CCSprite>::createSpriteName("GJ_deleteBtn_001.png")
+        .intoMenuItem([this](auto) {
+            geode::createQuickPopup("Reset all settings", "Are you sure you want to reset all settings? This action is <cr>irreversible.</c>", "Cancel", "Ok", [this](auto, bool accepted) {
+                if (accepted) {
+                    SettingsManager::get().reset();
+                    this->refreshAll();
+                }
+            });
+        })
+        .id("btn-reset")
+        .parent(rightMenu)
+        .collect();
+
+    // Save slot button
+    Build<CircleButtonSprite>::create(CCSprite::create("icon-folder-settings.png"_spr), CircleBaseColor::Pink)
+        .with([&](auto* item) { cue::rescaleToMatch(item, resetBtn); })
+        .intoMenuItem([this](auto) {
+            auto popup = SaveSlotSwitcherPopup::create();
+            popup->setSwitchCallback([this] {
+                this->refreshAll();
+            });
+            popup->show();
+        })
+        .id("btn-save-slots")
+        .parent(rightMenu);
+
+    rightMenu->updateLayout();
 
     return true;
 }
@@ -68,15 +110,22 @@ void SettingsLayer::addSettings() {
     this->addSetting<FloatSettingCell>("core.level.progress-opacity", "Progress Opacity", "");
     this->addSetting<BoolSettingCell>("core.level.voice-overlay", "Voice Chat Overlay", "Shows an overlay of players currently talking in voice chat.\nThis is useful for reporting players.");
     this->addSetting<BoolSettingCell>("core.level.force-progressbar", "Force Progress Bar", "Forces the progress bar to always be visible.");
+    this->addSetting<BoolSettingCell>("core.level.progress-indicators", "Progress Icons (Classic)", "");
+    this->addSetting<BoolSettingCell>("core.level.progress-indicators-plat", "Progress Icons (Plat)", "");
+    this->addSetting<FloatSettingCell>("core.level.progress-opacity", "Progress Opacity", "");
+    this->addSetting<BoolSettingCell>("core.level.voice-overlay", "Voice Chat Overlay", "");
+    this->addSetting<BoolSettingCell>("core.level.self-status-icons", "Show Own Status Icons", "");
+    this->addSetting<BoolSettingCell>("core.level.self-name", "Show Own Name", "");
 
-    // Audio
-    this->addHeader("core.audio", "Audio");
-    this->addSetting<BoolSettingCell>("core.audio.voice-chat-enabled", "Voice Chat", "");
-    this->addSetting<FloatSettingCell>("core.audio.playback-volume", "Voice Volume", "");
-    this->addSetting(ButtonSettingCell::create("Audio Device", "Allows to set a proper audio input device.", "Set", [this] {
-        // TODO: popup with choosing audio device
+    // Overlay
+        AudioDeviceSetupPopup::create()->show();
     }, CELL_SIZE));
+    this->addSetting<BoolSettingCell>("core.audio.voice-proximity", "Voice Proximity (Plat)", "");
+    this->addSetting<BoolSettingCell>("core.audio.classic-proximity", "Voice Proximity (Classic)", "");
+    this->addSetting<BoolSettingCell>("core.audio.deafen-notification", "Deafen Notification", "");
+    this->addSetting<BoolSettingCell>("core.audio.only-friends", "Friends Only Voice", "");
     this->addSetting<BoolSettingCell>("core.audio.voice-loopback", "Voice Loopback", "");
+    auto bufferSize = this->addSetting<IntSliderSettingCell>("core.audio.buffer-size", "Audio Buffer Size", "");
 
     // Preload
     this->addHeader("core.player", "Preloading");
@@ -106,8 +155,14 @@ void SettingsLayer::addHeader(CStr key, CStr text) {
     this->addSetting<TitleSettingCell>(key, text, "");
 }
 
-void SettingsLayer::addSetting(CCNode* cell) {
+void SettingsLayer::addSetting(BaseSettingCellBase* cell) {
     m_list->addCell(cell);
+}
+
+void SettingsLayer::refreshAll() {
+    for (auto cell : m_list->iter<BaseSettingCellBase>()) {
+        cell->reload();
+    }
 }
 
 SettingsLayer* SettingsLayer::create() {

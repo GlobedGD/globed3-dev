@@ -7,6 +7,7 @@
 #include <globed/core/PopupManager.hpp>
 #include <globed/util/algo.hpp>
 #include <globed/util/gd.hpp>
+#include <globed/util/FunctionQueue.hpp>
 #include <core/CoreImpl.hpp>
 #include <core/PreloadManager.hpp>
 #include <core/net/NetworkManagerImpl.hpp>
@@ -18,11 +19,16 @@
 using namespace geode::prelude;
 using namespace asp::time;
 
+// TODO: check m_active in these hooks, same for playlayer and lel?
+
+constexpr float VOICE_OVERLAY_PAD_X = 5.f;
+constexpr float VOICE_OVERLAY_PAD_Y = 20.f;
+
 namespace {
 
 class CustomSchedule : public CCObject {
 public:
-    using Fn = std::function<void(globed::GlobedGJBGL*, float)>;
+    using Fn = std23::move_only_function<void(globed::GlobedGJBGL*, float)>;
 
     static CustomSchedule* create(Fn&& fn, float interval, globed::GlobedGJBGL* gjbgl) {
         auto ret = new CustomSchedule;
@@ -86,7 +92,24 @@ void GlobedGJBGL::setupPostInit() {
 }
 
 void GlobedGJBGL::setupNecessary() {
-    // TODO: ping overlay
+    auto& fields = *m_fields.self();
+
+    fields.m_pingOverlay = Build<PingOverlay>::create()
+        .scale(0.4f)
+        .zOrder(11)
+        .id("game-overlay"_spr);
+    fields.m_pingOverlay->addToLayer(this);
+
+    auto& nm = NetworkManagerImpl::get();
+    int levelId = m_level->m_levelID;
+
+    if (!nm.isConnected()) {
+        fields.m_pingOverlay->updateWithDisconnected();
+    } else if (!fields.m_active) {
+        fields.m_pingOverlay->updateWithEditor();
+    } else {
+        fields.m_pingOverlay->updatePing(nm.getGamePing().millis());
+    }
 }
 
 void GlobedGJBGL::setupAssetLoading() {
@@ -120,6 +143,7 @@ void GlobedGJBGL::setupAudio() {
         if (globed::setting<bool>("core.audio.voice-loopback")) {
             log::debug("Playing loopback voice frame");
             auto& am = AudioManager::get();
+
             if (auto err = am.playFrameStreamed(-1, frame).err()) {
                 log::warn("Failed to play loopback voice frame: {}", err);
             }
@@ -134,14 +158,26 @@ void GlobedGJBGL::setupAudio() {
     }
 #endif
 
-    // TODO: setup voice overlay here..
+    auto winSize = CCDirector::get()->getWinSize();
+
+    m_fields->m_voiceOverlay = Build<VoiceOverlay>::create()
+        .parent(m_uiLayer)
+        .visible(globed::setting<bool>("core.level.voice-overlay"))
+        .pos(winSize.width - VOICE_OVERLAY_PAD_X, VOICE_OVERLAY_PAD_Y)
+        .anchorPoint(1.f, 0.f)
+        .collect();
+
+    // enable voice proximity?
+    m_fields->m_isVoiceProximity = m_level->isPlatformer()
+        ? globed::setting<bool>("core.audio.voice-proximity")
+        : globed::setting<bool>("core.audio.classic-proximity");
 }
 
 void GlobedGJBGL::setupUpdateLoop() {
     auto& fields = *m_fields.self();
 
     // this has to be deferred. why? i don't know! but bugs happen otherwise
-    Loader::get()->queueInMainThread([this] {
+    FunctionQueue::get().queue([this] {
         auto self = GlobedGJBGL::get();
         if (!self || !self->active()) {
             return;
@@ -188,10 +224,17 @@ void GlobedGJBGL::setupUi() {
     fields.m_selfProgressIcon->updateIcons(globed::getPlayerIcons());
     fields.m_selfProgressIcon->setForceOnTop(true);
 
-    // TODO: self status icons
+    fields.m_selfStatusIcons = Build(PlayerStatusIcons::create(255))
+        .anchorPoint(0.5f, 0.f)
+        .parent(fields.m_playerNode)
+        .id("self-player-status-icons"_spr);
 
-    // TODO: own username
-
+    fields.m_selfNameLabel = Build(NameLabel::create(GJAccountManager::get()->m_username.c_str(), "chatFont.fnt"))
+        .opacity(globed::setting<float>("core.player.name-opacity") * 255.f)
+        .pos(0.f, 28.f)
+        .parent(fields.m_playerNode)
+        .id("self-player-name"_spr);
+    fields.m_selfNameLabel->setShadowEnabled(true);
 }
 
 void GlobedGJBGL::setupListeners() {
@@ -207,6 +250,11 @@ void GlobedGJBGL::setupListeners() {
         this->onVoiceDataReceived(message);
         return ListenerResult::Continue;
     });
+
+    fields.m_mutedListener = nm.listen<msg::ChatNotPermittedMessage>([this](const msg::ChatNotPermittedMessage&) {
+        m_fields->m_knownServerMuted = true;
+        return ListenerResult::Continue;
+    });
 }
 
 void GlobedGJBGL::onQuit() {
@@ -215,6 +263,7 @@ void GlobedGJBGL::onQuit() {
     am.stopAllOutputStreams();
 
     auto& fields = *m_fields.self();
+    fields.m_quitting = true;
 
     if (!fields.m_active) {
         return;
@@ -306,6 +355,11 @@ void GlobedGJBGL::selUpdate(float tsdt) {
                 log::debug("player {} has unknown team", playerId);
             }
         }
+
+        // update voice proximity
+        if (fields.m_isVoiceProximity) {
+            this->updateProximityVolume(playerId);
+        }
     }
 
     // the server might not send any updates if there are no players on the level,
@@ -341,6 +395,52 @@ void GlobedGJBGL::selUpdate(float tsdt) {
             this->selSendPlayerData(dt);
         }
     }
+
+    // update position for self icons / username
+    PlayerStatusFlags flags{};
+    flags.speaking = AudioManager::get().isPassiveRecording();
+    flags.speakingMuted = flags.speaking && fields.m_knownServerMuted;
+
+    bool showSelfName = globed::setting<bool>("core.level.self-name");
+    bool showSelfIcons = flags.speaking && globed::setting<bool>("core.level.self-status-icons");
+
+    if (showSelfIcons) {
+        fields.m_selfStatusIcons->setVisible(true);
+        fields.m_selfStatusIcons->updateStatus(flags);
+        fields.m_selfStatusIcons->setPosition({
+            m_player1->getPosition() + CCPoint{0.f, showSelfName ? 43.f : 28.f} // TODO
+        });
+    } else {
+        fields.m_selfStatusIcons->setVisible(false);
+    }
+
+    if (showSelfName) {
+        fields.m_selfNameLabel->setVisible(true);
+        fields.m_selfNameLabel->setPosition({
+            m_player1->getPosition() + CCPoint{0.f, 28.f}
+        });
+    } else {
+        fields.m_selfNameLabel->setVisible(false);
+    }
+
+    fields.m_periodicalDelta += dt;
+    if (fields.m_periodicalDelta >= 0.25f) {
+        this->selPeriodicalUpdate(fields.m_periodicalDelta);
+        fields.m_periodicalDelta = 0.f;
+    }
+}
+
+void GlobedGJBGL::selPeriodicalUpdate(float dt) {
+    auto& fields = *m_fields.self();
+
+    if (!fields.m_active) {
+        fields.m_pingOverlay->updateWithDisconnected();
+        return;
+    }
+
+    fields.m_pingOverlay->updatePing(NetworkManagerImpl::get().getGamePing().millis());
+
+    // idk
 }
 
 void GlobedGJBGL::selPostInitActions(float dt) {
@@ -387,7 +487,10 @@ void GlobedGJBGL::selSendPlayerData(float dt) {
     auto coverage = camState.cameraCoverage();
 
     CCPoint camCenter = camState.cameraOrigin + coverage / 2.f;
-    float camRadius = std::max(coverage.width, coverage.height) / 2.f * 2.75f;
+
+    float camRadius = fields.m_noGlobalCulling
+        ? INFINITY
+        : std::max(coverage.width, coverage.height) / 2.f * 2.75f;
 
     NetworkManagerImpl::get().sendPlayerState(state, toRequest, camCenter, camRadius);
 }
@@ -452,7 +555,9 @@ PlayerState GlobedGJBGL::getPlayerState() {
 
         out.isVisible = obj->isVisible();
         out.isLookingLeft = obj->m_isGoingLeft;
-        out.isUpsideDown = obj->m_isSwing ? obj->m_isUpsideDown : pobjInner->getScaleY() == -1.0f;
+        // TODO: wtf was this for?
+        // out.isUpsideDown = (iconType == Swing || iconType == Cube) ? obj->m_isUpsideDown : pobjInner->getScaleY() == -1.0f;
+        out.isUpsideDown = obj->m_isUpsideDown;
         out.isDashing = obj->m_isDashing;
         out.isMini = obj->m_vehicleSize != 1.0f;
         out.isGrounded = obj->m_isOnGround;
@@ -461,6 +566,22 @@ PlayerState GlobedGJBGL::getPlayerState() {
         // TODO: set didJustJump
         out.isRotating = obj->m_isRotating;
         out.isSideways = obj->m_isSideways;
+
+        if (fields.m_sendExtData) {
+            // gather some extra data
+            auto ed = ExtendedPlayerData{};
+            ed.velocityX = obj->m_platformerXVelocity;
+            ed.velocityY = obj->m_yVelocity;
+            ed.accelerating = obj->m_isAccelerating;
+            ed.acceleration = obj->m_accelerationOrSpeed;
+            ed.fallStartY = obj->m_fallStartY;
+            ed.isOnGround2 = obj->m_isOnGround2;
+            ed.gravityMod = obj->m_gravityMod;
+            ed.gravity = obj->m_gravity;
+            ed.touchedPad = obj->m_touchedPad;
+
+            out.extData = ed;
+        }
     };
 
     out.player1 = PlayerObjectData{};
@@ -508,6 +629,10 @@ bool GlobedGJBGL::isManuallyResetting() {
 
 bool GlobedGJBGL::isSafeMode() {
     return m_fields->m_safeMode;
+}
+
+bool GlobedGJBGL::isQuitting() {
+    return m_fields->m_quitting;
 }
 
 void GlobedGJBGL::handlePlayerJoin(int playerId) {
@@ -650,6 +775,14 @@ RemotePlayer* GlobedGJBGL::getPlayer(int playerId) {
     return it == players.end() ? nullptr : it->second.get();
 }
 
+void GlobedGJBGL::toggleCullingEnabled(bool culling) {
+    m_fields->m_noGlobalCulling = !culling;
+}
+
+void GlobedGJBGL::toggleExtendedData(bool extended) {
+    m_fields->m_sendExtData = extended;
+}
+
 void GlobedGJBGL::toggleHidePlayers() {
     auto& fields = *m_fields.self();
     fields.m_playersHidden = !fields.m_playersHidden;
@@ -662,7 +795,18 @@ void GlobedGJBGL::toggleHidePlayers() {
 }
 
 void GlobedGJBGL::toggleDeafen() {
+    bool& deafen = m_fields->m_deafened;
+    deafen = !deafen;
 
+    if (globed::setting<bool>("core.audio.deafen-notification")) {
+        globed::toast(
+            CCSprite::create(deafen ? "deafen-icon-on.png"_spr : "deafen-icon-off.png"_spr),
+            0.2f,
+            deafen ? "Deafened Voice Chat" : "Undeafened Voice Chat"
+        );
+    }
+
+    AudioManager::get().setDeafen(deafen);
 }
 
 void GlobedGJBGL::resumeVoiceRecording() {
@@ -674,7 +818,7 @@ void GlobedGJBGL::pauseVoiceRecording() {
     AudioManager::get().pausePassiveRecording();
 }
 
-void GlobedGJBGL::customSchedule(const std::string& id, std::function<void(GlobedGJBGL*, float)>&& f, float interval) {
+void GlobedGJBGL::customSchedule(const std::string& id, std23::move_only_function<void(GlobedGJBGL*, float)>&& f, float interval) {
     auto sched = CustomSchedule::create(std::move(f), interval, this);
     this->setUserObject(id, sched);
 }
@@ -750,7 +894,7 @@ float GlobedGJBGL::calculateVolumeFor(int playerId) {
     auto& am = AudioManager::get();
 
     if (am.getDeafen() || !fields.m_isVoiceProximity) {
-        return globed::setting<float>("core.audio.playback-volume");
+        return 1.f;
     }
 
     if (!fields.m_interpolator.hasPlayer(playerId)) {
@@ -759,15 +903,17 @@ float GlobedGJBGL::calculateVolumeFor(int playerId) {
 
     OutFlags flags;
     auto& vstate = fields.m_interpolator.getPlayerState(playerId, flags);
-
-    float distance = ccpDistance(m_player1->getPosition(), vstate.player1->position);
-    float volume = 1.f - std::clamp(distance, 0.01f, PROXIMITY_VOICE_LIMIT) / PROXIMITY_VOICE_LIMIT;
     if (vstate.isInEditor) {
-        volume = 1.f;
+        return 1.f;
     }
 
-    volume *= globed::setting<float>("core.audio.playback-volume");
-    return volume;
+    float distance = ccpDistance(m_player1->getPosition(), vstate.player1->position);
+    return 1.25f - std::clamp(distance, 0.01f, PROXIMITY_VOICE_LIMIT) / PROXIMITY_VOICE_LIMIT;
+}
+
+void GlobedGJBGL::updateProximityVolume(int playerId) {
+    float vol = this->calculateVolumeFor(playerId);
+    AudioManager::get().setStreamVolume(playerId, vol);
 }
 
 }

@@ -15,6 +15,21 @@ using namespace geode::prelude;
 
 namespace globed {
 
+#ifdef GLOBED_DEBUG
+static inline bool lerpDebug() {
+    static bool val = Loader::get()->getLaunchFlag("globed/core.dev.lerp-debug");
+    return val;
+}
+#else
+static inline bool lerpDebug() {
+    return false;
+}
+#endif
+
+static inline bool hideNearby(GJBaseGameLayer* gjbgl) {
+    return setting<bool>(gjbgl->m_level->isPlatformer() ? "core.player.hide-nearby-plat" : "core.player.hide-nearby-classic");
+}
+
 bool VisualPlayer::init(GJBaseGameLayer* gameLayer, RemotePlayer* rp, CCNode* playerNode, bool isSecond) {
     if (!PlayerObject::init(1, 1, gameLayer, gameLayer->m_objectLayer, gameLayer->m_isEditor)) {
         return false;
@@ -53,53 +68,58 @@ bool VisualPlayer::init(GJBaseGameLayer* gameLayer, RemotePlayer* rp, CCNode* pl
             .id("status-icons"_spr);
     }
 
-#ifdef GLOBED_DEBUG_INTERPOLATION
-    Build<CCDrawNode>::create()
-        .id(fmt::format("debug-trajectory"_spr).c_str())
-        .parent(gameLayer->m_objectLayer)
-        .store(m_playerTrajectory);
+    if (lerpDebug()) {
+        Build<CCDrawNode>::create()
+            .id(fmt::format("debug-trajectory"_spr).c_str())
+            .parent(gameLayer->m_objectLayer)
+            .store(m_playerTrajectory);
 
-    m_playerTrajectory->m_bUseArea = false;
-#endif
+        m_playerTrajectory->m_bUseArea = false;
+    }
 
     return true;
 }
 
-void VisualPlayer::updateFromData(const PlayerObjectData& data, const PlayerState& state, const GameCameraState& camState) {
-#ifdef GLOBED_DEBUG_INTERPOLATION
-    if (m_playerTrajectory) {
-        m_playerTrajectory->drawSegment(
-            m_prevPosition, data.position,
-            0.5f,
-            ccColor4F{0.f, 1.f, 0.1f, 1.f}
-        );
-
-        auto& interpolator = GlobedGJBGL::get()->m_fields->m_interpolator;
-        int accountId = m_remotePlayer->m_state.accountId;
-
-        if (interpolator.hasPlayer(accountId)) {
-            auto& newstate = interpolator.getNewerState(m_remotePlayer->m_state.accountId);
-
-            m_playerTrajectory->drawCircle(
-                m_isSecond ? (newstate.player2 ? newstate.player2->position : CCPoint{}) : newstate.player1->position,
-                1.5f,
-                ccColor4F{0.1f, 0.9f, 0.2f, 1.f},
-                0.3f,
-                ccColor4F{1.f, 0.f, 0.f, 0.f},
-                8
-            );
-        }
-
-        // detect if the player reset
-        if (ccpDistance(m_prevPosition, data.position) > 50.f && data.position.x < m_prevPosition.x) {
-            m_playerTrajectory->clear();
-        }
+void VisualPlayer::updateFromData(const PlayerObjectData& data, const PlayerState& state, const GameCameraState& camState, bool forceHide) {
+    if (lerpDebug()) {
+        this->updateLerpTrajectory(data);
     }
-#endif
 
     m_prevRotating = data.isRotating;
     m_prevPosition = data.position;
     m_prevRotation = data.rotation;
+
+    // set some PlayerObject members
+
+    m_isGoingLeft = data.isLookingLeft;
+    m_isDead = state.isDead;
+    m_isUpsideDown = data.isUpsideDown;
+    m_isOnGround = data.isGrounded;
+    // m_isRotating = data.isRotating;
+    // m_isSideways = data.isSideways;
+
+    // m_isShip = data.iconType == PlayerIconType::Ship;
+    // m_isBall = data.iconType == PlayerIconType::Ball;
+    // m_isBird = data.iconType == PlayerIconType::Ufo;
+    // m_isDart = data.iconType == PlayerIconType::Wave;
+    // m_isRobot = data.iconType == PlayerIconType::Robot;
+    // m_isSpider = data.iconType == PlayerIconType::Spider;
+    // m_isSwing = data.iconType == PlayerIconType::Swing;
+
+    if (data.extData) {
+        auto& ed = *data.extData;
+        m_platformerXVelocity = ed.velocityX;
+        m_yVelocity = ed.velocityY;
+        m_isAccelerating = ed.accelerating;
+        m_accelerationOrSpeed = ed.acceleration;
+        m_fallStartY = ed.fallStartY;
+        m_isOnGround2 = ed.isOnGround2;
+        m_gravityMod = ed.gravityMod;
+        m_gravity = ed.gravity;
+        m_touchedPad = ed.touchedPad;
+    }
+
+    // calculate visibility n stuff
 
     bool isNearby = this->isPlayerNearby(data, camState);
 
@@ -109,7 +129,9 @@ void VisualPlayer::updateFromData(const PlayerObjectData& data, const PlayerStat
     // determine if the player should be visible
     bool shouldBeVisible = true;
 
-    if (state.isPracticing && setting<bool>("core.player.hide-practicing")) {
+    if (forceHide) {
+        shouldBeVisible = false;
+    } else if (state.isPracticing && setting<bool>("core.player.hide-practicing")) {
         shouldBeVisible = false;
     } else {
         shouldBeVisible = (data.isVisible || setting<bool>("core.player.force-visibility")) && isNearby;
@@ -192,7 +214,7 @@ void VisualPlayer::updateFromData(const PlayerObjectData& data, const PlayerStat
         m_prevMode = data.iconType;
     }
 
-    if ((switchedMode || (isNearby && setting<bool>("core.player.hide-nearby"))) && !updatedOpacity) {
+    if ((switchedMode || (isNearby && hideNearby(*gjbgl))) && !updatedOpacity) {
         this->updateOpacity();
         updatedOpacity = true;
     }
@@ -208,7 +230,7 @@ void VisualPlayer::updateFromData(const PlayerObjectData& data, const PlayerStat
         m_statusIcons->updateStatus(flags);
     }
 
-    // TODO: dashing
+    // TODO (low): dashing
 
     // animate robot and spider
     if (data.iconType == PlayerIconType::Robot || data.iconType == PlayerIconType::Spider) {
@@ -275,6 +297,39 @@ void VisualPlayer::updateFromData(const PlayerObjectData& data, const PlayerStat
     }
 }
 
+void VisualPlayer::updateLerpTrajectory(const PlayerObjectData& data) {
+    if (!m_playerTrajectory) {
+        return;
+    }
+
+    m_playerTrajectory->drawSegment(
+        m_prevPosition, data.position,
+        0.5f,
+        ccColor4F{0.f, 1.f, 0.1f, 1.f}
+    );
+
+    auto& interpolator = GlobedGJBGL::get()->m_fields->m_interpolator;
+    int accountId = m_remotePlayer->m_state.accountId;
+
+    if (interpolator.hasPlayer(accountId)) {
+        auto& newstate = interpolator.getNewerState(m_remotePlayer->m_state.accountId);
+
+        m_playerTrajectory->drawCircle(
+            m_isSecond ? (newstate.player2 ? newstate.player2->position : CCPoint{}) : newstate.player1->position,
+            1.5f,
+            ccColor4F{0.1f, 0.9f, 0.2f, 1.f},
+            0.3f,
+            ccColor4F{1.f, 0.f, 0.f, 0.f},
+            8
+        );
+    }
+
+    // detect if the player reset
+    if (ccpDistance(m_prevPosition, data.position) > 50.f && data.position.x < m_prevPosition.x) {
+        m_playerTrajectory->clear();
+    }
+}
+
 PlayerIconData& VisualPlayer::icons() {
     return m_remotePlayer->m_data.icons;
 }
@@ -286,9 +341,9 @@ PlayerDisplayData& VisualPlayer::displayData() {
 void VisualPlayer::updateOpacity() {
     float mult = 1.f;
 
-    bool hideNearby = setting<bool>("core.player.hide-nearby");
+    bool hideNearby_ = hideNearby(GlobedGJBGL::get());
 
-    if (hideNearby) {
+    if (hideNearby_) {
         // calculate distance
         auto p1pos = m_gameLayer->m_player1->getPosition();
         auto p2pos = m_gameLayer->m_player2->getPosition();
@@ -317,7 +372,7 @@ void VisualPlayer::updateOpacity() {
     }
 
     // set name opacity as well if hide nearby is enabled
-    if (hideNearby) {
+    if (hideNearby_) {
         m_nameLabel->updateOpacity(opacity);
     }
 }
@@ -325,7 +380,7 @@ void VisualPlayer::updateOpacity() {
 void VisualPlayer::updateIconType(PlayerIconType iconType) {
     auto& icons = this->icons();
 
-    this->toggleFlyMode(false, false);
+    this->toggleFlyMode(false, true);
     this->toggleRollMode(false, false);
     this->toggleBirdMode(false, false);
     this->toggleDartMode(false, false);
@@ -368,7 +423,7 @@ void VisualPlayer::updateIconType(PlayerIconType iconType) {
             this->updatePlayerSwingFrame(icons.swing);
         } break;
         case PlayerIconType::Jetpack: {
-            this->toggleFlyMode(true, false);
+            this->toggleFlyMode(true, true);
             this->updatePlayerJetpackFrame(icons.jetpack);
         } break;
     }

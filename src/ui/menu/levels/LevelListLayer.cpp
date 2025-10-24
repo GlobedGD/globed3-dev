@@ -3,8 +3,10 @@
 #include <globed/core/SettingsManager.hpp>
 #include <core/net/NetworkManagerImpl.hpp>
 #include <core/hooks/LevelCell.hpp>
+#include <ui/menu/FeatureCommon.hpp>
 
 #include <UIBuilder.hpp>
+#include <asp/iter.hpp>
 
 using namespace geode::prelude;
 
@@ -209,12 +211,6 @@ bool LevelListLayer::init() {
     m_loadingCircle->setZOrder(11);
     m_loadingCircle->addToLayer(m_list);
 
-    // TODO idk
-    // DailyManager::get().getCurrentLevelMeta([this](const GlobedFeaturedLevel& meta) {
-    //     currentFeaturedLevel = meta;
-    // });
-
-
     if (auto filtersJson = globed::value<Filters>("core.ui.saved-level-filters")) {
         m_filters = *filtersJson;
     }
@@ -387,45 +383,27 @@ void LevelListLayer::finishLoading() {
 
     m_list->clear();
 
+    auto flevel = NetworkManagerImpl::get().getFeaturedLevel();
+
     for (auto level : page) {
-        auto cell = new LevelCell("", 356.f, 90.f);
+        auto cell = static_cast<HookedLevelCell*>(new LevelCell("", 356.f, 90.f));
+        cell->autorelease();
         cell->loadFromLevel(level);
         cell->setContentSize({356.f, 90.f});
 
-        auto count = this->findPlayerCountForLevel(level->m_levelID);
-        if (count) {
-            auto gcell = static_cast<HookedLevelCell*>(cell);
-            gcell->updatePlayerCount(*count);
+        if (auto count = this->findPlayerCountForLevel(level->m_levelID)) {
+            cell->updatePlayerCount(*count);
+        }
+
+        if (flevel && flevel->levelId == level->m_levelID) {
+            globed::setFeatureTierForLevel(cell->m_level, flevel->rateTier);
+            cell->setGlobedFeature(flevel->rateTier);
         }
 
         m_list->addCell(cell);
     }
 
     m_list->updateLayout();
-
-    // CCArray* finalArray = CCArray::create();
-    // for (auto level : page) {
-    //     finalArray->addObject(level);
-    // }
-
-    // if (listLayer->m_listView) listLayer->m_listView->removeFromParent();
-    // listLayer->m_listView = Build<CustomListView>::create(finalArray, BoomListType::Level, LIST_HEIGHT, LIST_WIDTH)
-    //     .parent(listLayer)
-    //     .collect();
-
-    // TODO: featured stuff
-    // guys we are about to do a funny
-    // for (LevelCell* cell : CCArrayExt<LevelCell*>(listLayer->m_listView->m_tableView->m_contentLayer->getChildren())) {
-    //     int levelId = HookedGJGameLevel::getLevelIDFrom(cell->m_level);
-    //     if (!playerCounts.contains(levelId)) continue;
-
-    //     auto globedCell = static_cast<GlobedLevelCell*>(cell);
-    //     globedCell->updatePlayerCount(playerCounts.at(levelId));
-    //     if (globedCell->m_level->m_levelID == currentFeaturedLevel.levelId) {
-    //         globedCell->modifyToFeaturedCell(currentFeaturedLevel.rateTier);
-    //         globedCell->m_fields->rateTier = currentFeaturedLevel.rateTier;
-    //     }
-    // }
 
     // show the buttons
     this->toggleLoadingUi(false);
@@ -467,13 +445,9 @@ bool LevelListLayer::loadNextBatch() {
 }
 
 std::optional<size_t> LevelListLayer::findPlayerCountForLevel(int levelId) {
-    for (const auto& [id, count] : m_playerCounts) {
-        if (id.levelId() == levelId) {
-            return count;
-        }
-    }
-
-    return std::nullopt;
+    return asp::iter::from(m_playerCounts)
+        .find([&](const auto& pair) { return pair.get().first.levelId() == levelId; })
+        .transform([](const auto& pair) { return pair.get().second; });
 }
 
 bool LevelListLayer::isMatchingFilters(GJGameLevel* level) {
@@ -569,10 +543,9 @@ bool LevelListLayer::isMatchingFilters(GJGameLevel* level) {
 
     // if (filters.song) {
     //     log::debug("Song id = {}, ids = {}", level->m_songID, level->m_songIDs);
-    //     // TODO
     // }
 
-    // if (filters.verifiedCoins && !level->m_coinsVerified) {
+    // if (m_filters.verifiedCoins && !level->m_coinsVerified) {
     //     return false;
     // }
 
@@ -680,12 +653,7 @@ static std::vector<std::pair<globed::SessionId, uint16_t>> getFakeLevels() {
         {123, 45},
     };
 
-    std::vector<std::pair<globed::SessionId, uint16_t>> out;
-    out.reserve(levels.size());
-
-    for (auto [id, count] : levels) {
-        out.push_back({globed::SessionId{id}, count});
-    }
-
-    return out;
+    return asp::iter::from(levels).map([](auto pair) {
+        return std::make_pair(globed::SessionId{pair.first}, pair.second);
+    }).collect<std::vector<std::pair<globed::SessionId, uint16_t>>>();
 }

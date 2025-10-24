@@ -2,12 +2,14 @@
 #include "ModPunishPopup.hpp"
 #include "ModRoleModifyPopup.hpp"
 #include "ModNoticeSetupPopup.hpp"
+#include "ModAuditLogPopup.hpp"
 
 #include <globed/core/PopupManager.hpp>
 #include <globed/core/actions.hpp>
 #include <core/net/NetworkManagerImpl.hpp>
 #include <ui/misc/UnreadBadge.hpp>
 #include <ui/misc/Badges.hpp>
+#include <ui/misc/InputPopup.hpp>
 
 #include <UIBuilder.hpp>
 
@@ -56,11 +58,22 @@ bool ModUserPopup::setup(int accountId) {
     return true;
 }
 
+ModUserPopup::~ModUserPopup() {
+    auto glm = GameLevelManager::get();
+    glm->m_userInfoDelegate = nullptr;
+    glm->m_levelManagerDelegate = nullptr;
+}
+
 void ModUserPopup::initUi() {
+    cue::resetNode(m_loadCircle);
+    cue::resetNode(m_nameLayout);
+    cue::resetNode(m_rootLayout);
+
     // name layout
     m_nameLayout = Build<CCMenu>::create()
         .layout(RowLayout::create()->setGap(5.f)->setAutoScale(false))
         .pos(this->fromTop(20.f))
+        .id("name-layout"_spr)
         .parent(m_mainLayer);
 
     // name label
@@ -77,7 +90,7 @@ void ModUserPopup::initUi() {
 
     m_nameLayout->updateLayout();
 
-    auto* rootLayout = Build<CCNode>::create()
+    m_rootLayout = Build<CCNode>::create()
         .pos(this->fromCenter(0.f, -5.f))
         .anchorPoint(0.5f, 0.5f)
         .contentSize(m_size.width * 0.8f, m_size.height * 0.6f)
@@ -88,7 +101,7 @@ void ModUserPopup::initUi() {
     Build<CCScale9Sprite>::create("square02_001.png", CCRect{0.f, 0.f, 80.f, 80.f})
         .opacity(60)
         .id("bg")
-        .parent(rootLayout)
+        .parent(m_rootLayout)
         .with([&](auto spr) {
             auto cs = spr->getParent()->getContentSize();
             cs.height *= 2.f;
@@ -101,10 +114,10 @@ void ModUserPopup::initUi() {
 
     m_rootMenu = Build<CCMenu>::create()
         .ignoreAnchorPointForPos(false)
-        .contentSize(rootLayout->getScaledContentSize() * 0.95f)
+        .contentSize(m_rootLayout->getScaledContentSize() * 0.95f)
         .anchorPoint(0.5f, 0.5f)
-        .pos(rootLayout->getScaledContentSize() / 2.f)
-        .parent(rootLayout)
+        .pos(m_rootLayout->getScaledContentSize() / 2.f)
+        .parent(m_rootLayout)
         .layout(RowLayout::create()
                     ->setGap(5.f)
                     ->setAutoScale(false)
@@ -126,16 +139,13 @@ void ModUserPopup::initUi() {
                 [this, btn](auto, bool confirm) {
                     if (!confirm) return;
 
-                    // TODO: send whitelist message
-
-                    m_data->whitelisted = !m_data->whitelisted;
+                    bool newv = !m_data->whitelisted;
+                    NetworkManagerImpl::get().sendAdminSetWhitelisted(m_data->accountId, newv);
+                    m_data->whitelisted = newv;
 
                     btn->setSprite(
-                        Build<CCSprite>::create(
-                            m_data->whitelisted ? "button-admin-unwhitelist.png"_spr : "button-admin-whitelist.png"_spr
-                            )
+                        Build<CCSprite>::create(newv ? "button-admin-unwhitelist.png"_spr : "button-admin-whitelist.png"_spr)
                             .scale(btnScale)
-                            .collect()
                     );
                 }
             );
@@ -157,7 +167,9 @@ void ModUserPopup::initUi() {
             }
         })
         .intoMenuItem([this] {
-            // TODO: open logs filtering on this person
+            ModAuditLogPopup::create(FetchLogsFilters {
+                .target = m_data->accountId,
+            })->show();
         })
         .zOrder(btnorder::History)
         .parent(m_rootMenu);
@@ -170,7 +182,18 @@ void ModUserPopup::initUi() {
         Build<CCSprite>::create("button-admin-password.png"_spr)
             .scale(btnScale)
             .intoMenuItem([this] {
-                // TODO: prompt for password
+                auto popup = InputPopup::create("bigFont.fnt");
+                popup->setMaxCharCount(32);
+                popup->setWidth(280.f);
+                popup->setPasswordMode(true);
+                popup->setPlaceholder("Password");
+                popup->setTitle("Set Password");
+                popup->setCallback([this](auto outcome) {
+                    if (outcome.cancelled) return;
+                    NetworkManagerImpl::get().sendAdminSetPassword(m_data->accountId, outcome.text);
+                });
+
+                popup->show();
             })
             .zOrder(btnorder::AdminPassword)
             .parent(m_rootMenu);
@@ -180,8 +203,6 @@ void ModUserPopup::initUi() {
     Build<CCSprite>::create("button-admin-kick.png"_spr)
         .scale(btnScale)
         .intoMenuItem([this] {
-            // TODO: input popup and ask for reason
-
             globed::quickPopup(
                 "Confirm",
                 "Are you sure you want to <cr>kick</c> this person from the server?",
@@ -190,7 +211,17 @@ void ModUserPopup::initUi() {
                 [this](auto, bool yeah) {
                     if (!yeah) return;
 
-                    NetworkManagerImpl::get().sendAdminKick(m_data->accountId, "Kicked by moderator");
+                    auto popup = InputPopup::create("chatFont.fnt");
+                    popup->setMaxCharCount(128);
+                    popup->setWidth(360.f);
+                    popup->setPlaceholder("Reason");
+                    popup->setTitle(fmt::format("Kick {}", m_score->m_userName));
+                    popup->setCallback([this](auto outcome) {
+                        if (outcome.cancelled) return;
+                        NetworkManagerImpl::get().sendAdminKick(m_data->accountId, outcome.text);
+                    });
+
+                    popup->show();
                 }
             );
         })
@@ -377,7 +408,7 @@ void ModUserPopup::onUserInfoLoaded(geode::Result<GJUserScore*> res, bool sendUp
     m_score = res.unwrap();
 
     if (!m_data) {
-        m_data = {};
+        m_data = Data{};
     }
 
     m_data->accountId = m_score->m_accountID;

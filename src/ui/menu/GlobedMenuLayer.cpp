@@ -21,6 +21,8 @@
 #include <ui/menu/RoomSettingsPopup.hpp>
 #include <ui/menu/SupportPopup.hpp>
 #include <ui/menu/CreditsPopup.hpp>
+#include <ui/menu/FeaturedPopup.hpp>
+#include <ui/menu/UserSettingsPopup.hpp>
 #include <ui/menu/levels/LevelListLayer.hpp>
 #include <ui/settings/SettingsLayer.hpp>
 #include <ui/misc/Badges.hpp>
@@ -82,7 +84,11 @@ public:
     void softRefresh(const RoomPlayer& rp) {
         if (rp.specialUserData) {
             m_nameLabel->updateWithRoles(*rp.specialUserData);
+        } else {
+            m_nameLabel->updateNoRoles();
         }
+
+        m_leftContainer->updateLayout();
 
         if (rp.session != m_sessionId) {
             m_sessionId = rp.session;
@@ -158,7 +164,7 @@ protected:
 
 // order of buttons in right side menu
 namespace RightBtn {
-    constexpr int Invisibility = 3;
+    constexpr int PrivacySettings = 3;
     constexpr int AdminPanel = 4;
     constexpr int Search = 5;
     constexpr int ClearSearch = 6;
@@ -171,6 +177,7 @@ namespace LeftBtn {
     constexpr int RegionSwitch = 110;
     constexpr int Teams = 300;
     constexpr int Settings = 400;
+    constexpr int CloseRoom = 500;
 }
 
 namespace FarRightBtn {
@@ -249,11 +256,31 @@ bool GlobedMenuLayer::init() {
         .scaleMult(1.1f)
         .parent(m_connectMenu);
 
+    auto cscLayout = RowLayout::create()->setAutoScale(false);
+    cscLayout->ignoreInvisibleChildren(true);
+    m_connStateContainer = Build<CCMenu>::create()
+        .layout(cscLayout)
+        .contentSize(240.f, 28.f)
+        .parent(m_connectMenu)
+        .id("conn-state-container")
+        .collect();
+
     // connection state label
     m_connStateLabel = Build<CCLabelBMFont>::create("", "bigFont.fnt")
         .scale(0.6f)
         .id("conn-state-lbl")
-        .parent(m_connectMenu);
+        .parent(m_connStateContainer);
+
+    // cancel connection button
+    m_cancelConnButton = Build<CCSprite>::create("exit01.png"_spr)
+        .with([&](auto spr) { cue::rescaleToMatch(spr, 27.5f); })
+        .intoMenuItem([this] {
+            (void) NetworkManagerImpl::get().cancelConnection();
+        })
+        .id("cancel-conn-btn")
+        .parent(m_connStateContainer);
+
+    m_connStateContainer->updateLayout();
 
     // button menu
     m_bottomMenu = Build<CCMenu>::create()
@@ -375,9 +402,9 @@ bool GlobedMenuLayer::init() {
 
     m_roomStateListener = nm.listen<msg::RoomStateMessage>([this](const auto& msg) {
         if (msg.roomId != m_roomId) {
-            this->initNewRoom(msg.roomId, msg.roomName, msg.players, msg.settings);
+            this->initNewRoom(msg.roomId, msg.roomName, msg.players, msg.playerCount, msg.settings);
         } else {
-            this->updateRoom(msg.roomName, msg.players, msg.settings);
+            this->updateRoom(msg.roomId, msg.roomName, msg.players, msg.playerCount, msg.settings);
         }
 
         return ListenerResult::Continue;
@@ -397,16 +424,29 @@ bool GlobedMenuLayer::init() {
     return true;
 }
 
-void GlobedMenuLayer::initNewRoom(uint32_t id, const std::string& name, const std::vector<RoomPlayer>& players, const RoomSettings& settings) {
+void GlobedMenuLayer::initNewRoom(uint32_t id, const std::string& name, const std::vector<RoomPlayer>& players, size_t playerCount, const RoomSettings& settings) {
     m_roomId = id;
-    m_roomNameLabel->setString(fmt::format("{} ({})", name, id).c_str());
 
-    this->updateRoom(name, players, settings);
+    bool hideId = globed::setting<bool>("core.streamer-mode");
+
+    if (id != 0) {
+        if (hideId) {
+            m_roomNameLabel->setString(name.c_str());
+        } else {
+            m_roomNameLabel->setString(fmt::format("{} ({})", name, id).c_str());
+        }
+    }
+
+    this->updateRoom(id, name, players, playerCount, settings);
     this->initRoomButtons();
     this->initSideButtons();
 }
 
-void GlobedMenuLayer::updateRoom(const std::string& name, const std::vector<RoomPlayer>& players, const RoomSettings& settings) {
+void GlobedMenuLayer::updateRoom(uint32_t id, const std::string& name, const std::vector<RoomPlayer>& players, size_t playerCount, const RoomSettings& settings) {
+    if (id == 0) {
+        m_roomNameLabel->setString(fmt::format("{} ({} {})", name, playerCount, playerCount == 1 ? "player" : "players").c_str());
+    }
+
     this->updatePlayerList(players);
 }
 
@@ -570,21 +610,21 @@ void GlobedMenuLayer::initRoomButtons() {
         // global room, show buttons to create / join a room
 
         Build(ButtonSprite::create("Join Room", "bigFont.fnt", "GJ_button_01.png", BtnScale))
-            .intoMenuItem([] {
+            .intoMenuItem(+[] {
                 if (auto p = RoomListingPopup::create()) p->show();
             })
             .scaleMult(1.1f)
             .parent(m_roomButtonsMenu);
 
         Build(ButtonSprite::create("Create Room", "bigFont.fnt", "GJ_button_01.png", BtnScale))
-            .intoMenuItem([] {
+            .intoMenuItem(+[] {
                 CreateRoomPopup::create()->show();
             })
             .scaleMult(1.1f)
             .parent(m_roomButtonsMenu);
     } else {
         Build(ButtonSprite::create("Leave Room", "bigFont.fnt", "GJ_button_01.png", BtnScale))
-            .intoMenuItem([] {
+            .intoMenuItem(+[] {
                 NetworkManagerImpl::get().sendLeaveRoom();
             })
             .scaleMult(1.1f)
@@ -648,7 +688,6 @@ void GlobedMenuLayer::initSideButtons() {
 
     // region switching button
     makeButton(
-        // TODO: icon
         CCSprite::create("server02.png"_spr),
         std::nullopt,
         m_leftSideMenu,
@@ -691,7 +730,42 @@ void GlobedMenuLayer::initSideButtons() {
         );
     }
 
+    // close room button
+    if (!rm.isInGlobal() && (rm.isOwner() || NetworkManagerImpl::get().isAuthorizedModerator())) {
+        makeButton(
+            CCSprite::create("exit01.png"_spr),
+            std::nullopt,
+            m_leftSideMenu,
+            LeftBtn::CloseRoom,
+            "btn-close-room",
+            [this] {
+                globed::quickPopup(
+                    "Close Room",
+                    "Are you sure you want to <cr>close</c> the room? All players will be <cy>kicked</c> from the room and it will be <cy>deleted</c>.",
+                    "Cancel", "Ok",
+                    [this](auto, bool yup) {
+                        if (!yup) return;
+
+                        NetworkManagerImpl::get().sendRoomOwnerAction(RoomOwnerActionType::CLOSE_ROOM);
+                    }
+                );
+            }
+        );
+    }
+
     /// Right side buttons
+
+    // user settings button
+    makeButton(
+        CCSprite::create("privacy-settings.png"_spr),
+        std::nullopt,
+        m_rightSideMenu,
+        RightBtn::PrivacySettings,
+        "btn-privacy-settings",
+        [this] {
+            UserSettingsPopup::create()->show();
+        }
+    );
 
     // mod panel button
     if (NetworkManagerImpl::get().isModerator()) {
@@ -823,6 +897,49 @@ void GlobedMenuLayer::initFarSideButtons() {
         .scaleMult(1.1f)
         .zOrder(FarLeftBtn::Levels)
         .parent(m_farLeftMenu);
+
+    auto& nm = NetworkManagerImpl::get();
+    auto flevel = nm.getFeaturedLevel();
+
+    if (flevel) {
+        bool isNew = !nm.hasViewedFeaturedLevel();
+
+        auto fbutton = Build<CCSprite>::create("feature01.png"_spr)
+            .with([&](auto btn) { cue::rescaleToMatch(btn, FAR_BTN_SIZE); })
+            .intoMenuItem(+[](CCMenuItemSpriteExtra* self) {
+                FeaturedPopup::create()->show();
+
+                // make it not new
+                NetworkManagerImpl::get().setViewedFeaturedLevel();
+
+                if (auto spr = self->getChildByID("btn-daily-extra"_spr)) {
+                    spr->setVisible(false);
+                }
+            })
+            .scaleMult(1.1f)
+            .zOrder(FarLeftBtn::Levels - 1)
+            .parent(m_farLeftMenu)
+            .collect();
+
+        if (isNew) {
+            Build<CCSprite>::createSpriteName("newMusicIcon_001.png")
+                .id("btn-daily-extra"_spr)
+                .anchorPoint({0.5, 0.5})
+                .pos({fbutton->getScaledContentWidth() * 0.85f, fbutton->getScaledContentHeight() * 0.15f})
+                .zOrder(2)
+                .visible(false)
+                .parent(fbutton)
+                .with([&](auto spr) {
+                    spr->runAction(
+                        CCRepeatForever::create(CCSequence::create(
+                            CCEaseSineInOut::create(CCScaleTo::create(0.75f, 1.2f)),
+                            CCEaseSineInOut::create(CCScaleTo::create(0.75f, 1.0f)),
+                            nullptr
+                        ))
+                    );
+                });
+        }
+    }
 
     m_farLeftMenu->updateLayout();
     m_farRightMenu->updateLayout();
@@ -994,7 +1111,12 @@ void GlobedMenuLayer::update(float dt) {
         } break;
     }
 
-    m_connStateLabel->limitLabelWidth(CONNECT_MENU_WIDTH, 0.7f, 0.2f);
+    m_connStateLabel->limitLabelWidth(210.f, 0.7f, 0.2f);
+
+    if (m_lastConnState != connState) {
+        m_lastConnState = connState;
+        m_connStateContainer->updateLayout();
+    }
 
     this->setMenuState(newState);
 
@@ -1026,7 +1148,7 @@ void GlobedMenuLayer::setMenuState(MenuState state, bool force) {
             m_connectMenu->setVisible(true);
             m_editServerButton->setEnabled(true);
             m_connectButton->setVisible(true);
-            m_connStateLabel->setVisible(false);
+            m_connStateContainer->setVisible(false);
             m_playerListMenu->setVisible(false);
             m_bottomMenu->setVisible(true);
             m_background->setColor({41, 41, 41});
@@ -1036,7 +1158,7 @@ void GlobedMenuLayer::setMenuState(MenuState state, bool force) {
             m_connectMenu->setVisible(true);
             m_editServerButton->setEnabled(false);
             m_connectButton->setVisible(false);
-            m_connStateLabel->setVisible(true);
+            m_connStateContainer->setVisible(true);
             m_playerListMenu->setVisible(false);
             m_bottomMenu->setVisible(false);
         } break;
@@ -1050,6 +1172,9 @@ void GlobedMenuLayer::setMenuState(MenuState state, bool force) {
             this->requestRoomState();
         } break;
     }
+
+    m_cancelConnButton->setVisible(state == MenuState::Connecting);
+    m_connStateContainer->updateLayout();
 
     this->initFarSideButtons();
 
@@ -1065,7 +1190,6 @@ void GlobedMenuLayer::keyBackClicked() {
         // only the owner of a follower room can leave to the main menu
         BaseLayer::keyBackClicked();
     } else {
-        // TODO: make this not the case
         globed::alert(
             "Error",
             "You are in a follower room, you <cr>cannot</c> leave to the main menu. Only the room owner can choose which levels to play."

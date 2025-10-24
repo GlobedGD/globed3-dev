@@ -1,6 +1,8 @@
 #include <globed/util/gd.hpp>
 #include <globed/util/singleton.hpp>
 
+#include <asp/iter.hpp>
+
 using namespace geode::prelude;
 
 namespace globed {
@@ -9,18 +11,14 @@ void reorderDownloadedLevel(GJGameLevel* level) {
     // thank you cvolton :D
     // this is needed so the level appears at the top of the saved list (unless Manual Level Order is enabled)
 
-    auto* levels = GameLevelManager::get()->m_onlineLevels;
-
+    CCDictionaryExt<gd::string, GJGameLevel*> levels = GameLevelManager::get()->m_onlineLevels;
     bool putAtLowest = cachedSingleton<GameManager>()->getGameVariable("0084");
 
-    int idx = 0;
-    for (const auto& [k, level] : CCDictionaryExt<gd::string, GJGameLevel*>(levels)) {
-        if (putAtLowest) {
-            idx = std::min(idx, level->m_levelIndex);
-        } else {
-            idx = std::max(idx, level->m_levelIndex);
-        }
-    }
+    auto iter = asp::iter::from(levels).map([](const auto& pair) {
+        return pair.second->m_levelIndex;
+    });
+
+    int idx = (putAtLowest ? std::move(iter).min() : std::move(iter).max()).value_or(0);
 
     if (putAtLowest) {
         idx -= 1;
@@ -64,7 +62,6 @@ GameLevelKind classifyLevel(int levelId) {
     // m_mainLevels contains (blank) levels from gd world and spinoffs. yikes!
     // we should not return these to the user, instead returning a Custom kind.
 
-
     // main levels, tower levels, the challenge
     bool isRealMain = (levelId >= 1 && levelId <= 127) || (levelId >= 5001 && levelId <= 5024) || (levelId == 3001);
 
@@ -80,13 +77,13 @@ GameLevelKind classifyLevel(int levelId) {
     if (levelId >= 1 && levelId <= 22) {
         // classic main levels
         return GameLevelKind {
-            .level = mlevel,
+            .level = glm->getMainLevel(levelId, false),
             .kind = GameLevelKind::Main
         };
     } else {
         // tower levels or the challenge
         return GameLevelKind {
-            .level = mlevel,
+            .level = glm->getMainLevel(levelId, false),
             .kind = GameLevelKind::Tower
         };
     }
@@ -179,6 +176,16 @@ cue::Icons getPlayerIcons() {
         .color1 = gm->m_playerColor,
         .color2 = gm->m_playerColor2,
         .glowColor = gm->m_playerGlow ? gm->m_playerGlowColor : -1,
+    };
+}
+
+cue::Icons convertPlayerIcons(const PlayerIconData& data) {
+    return cue::Icons {
+        .type = IconType::Cube,
+        .id = data.cube,
+        .color1 = data.color1.asIdx(),
+        .color2 = data.color2.asIdx(),
+        .glowColor = data.glowColor.asIdx(),
     };
 }
 

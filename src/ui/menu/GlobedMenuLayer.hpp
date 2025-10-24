@@ -1,6 +1,8 @@
 #pragma once
 
+#include <globed/prelude.hpp>
 #include <globed/core/net/MessageListener.hpp>
+#include <globed/core/net/NetworkManager.hpp>
 #include <globed/core/data/Messages.hpp>
 #include <ui/BaseLayer.hpp>
 
@@ -24,24 +26,31 @@ public:
     void onServerModified();
 
 private:
-    cocos2d::CCMenu* m_connectMenu;
-    cocos2d::extension::CCScale9Sprite* m_connectMenuBg;
+    CCMenu* m_connectMenu;
+    CCScale9Sprite* m_connectMenuBg;
     CCMenuItemSpriteExtra* m_editServerButton;
-    cocos2d::CCLabelBMFont* m_serverNameLabel;
+    CCLabelBMFont* m_serverNameLabel;
     CCMenuItemSpriteExtra* m_connectButton;
+<<<<<<< HEAD
     cocos2d::CCLabelBMFont* m_connStateLabel;
     cocos2d::CCMenu* m_bottomMenu;
+=======
+    CCLabelBMFont* m_connStateLabel;
+    CCNode* m_connStateContainer;
+    CCMenuItemSpriteExtra* m_cancelConnButton;
+>>>>>>> rewrite
     MenuState m_state = MenuState::None;
+    ConnectionState m_lastConnState;
 
-    cocos2d::CCNode* m_playerListMenu;
+    CCNode* m_playerListMenu;
     cue::ListNode* m_playerList;
-    cocos2d::CCLabelBMFont* m_roomNameLabel;
+    CCLabelBMFont* m_roomNameLabel;
     CCMenuItemSpriteExtra* m_roomNameButton;
-    cocos2d::CCMenu* m_roomButtonsMenu;
-    cocos2d::CCMenu* m_rightSideMenu = nullptr;
-    cocos2d::CCMenu* m_leftSideMenu = nullptr;
-    cocos2d::CCMenu* m_farLeftMenu = nullptr;
-    cocos2d::CCMenu* m_farRightMenu = nullptr;
+    CCMenu* m_roomButtonsMenu;
+    CCMenu* m_rightSideMenu = nullptr;
+    CCMenu* m_leftSideMenu = nullptr;
+    CCMenu* m_farLeftMenu = nullptr;
+    CCMenu* m_farRightMenu = nullptr;
     CCMenuItemSpriteExtra* m_searchBtn = nullptr;
     CCMenuItemSpriteExtra* m_clearSearchBtn = nullptr;
     std::optional<MessageListener<msg::RoomStateMessage>> m_roomStateListener;
@@ -61,8 +70,8 @@ private:
     void onEnter() override;
     bool ccTouchBegan(cocos2d::CCTouch* touch, cocos2d::CCEvent* event) override;
 
-    void initNewRoom(uint32_t id, const std::string& name, const std::vector<RoomPlayer>& players, const RoomSettings& settings);
-    void updateRoom(const std::string& name, const std::vector<RoomPlayer>& players, const RoomSettings& settings);
+    void initNewRoom(uint32_t id, const std::string& name, const std::vector<RoomPlayer>& players, size_t playerCount, const RoomSettings& settings);
+    void updateRoom(uint32_t id, const std::string& name, const std::vector<RoomPlayer>& players, size_t playerCount, const RoomSettings& settings);
     void updatePlayerList(const std::vector<RoomPlayer>& players);
     bool trySoftRefresh(const std::vector<RoomPlayer>& players);
     void initRoomButtons();

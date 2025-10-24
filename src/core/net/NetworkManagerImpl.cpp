@@ -58,6 +58,12 @@ static globed::PlayerIconData gatherIconData() {
     return out;
 }
 
+static void gatherUserSettings(auto&& out) {
+    out.setHideInLevel(globed::setting<bool>("core.user.hide-in-levels"));
+    out.setHideInMenus(globed::setting<bool>("core.user.hide-in-menus"));
+    out.setHideRoles(globed::setting<bool>("core.user.hide-roles"));
+}
+
 static Duration getPingInterval(uint32_t sentPings) {
     switch (sentPings) {
         case 0: return Duration::fromSecs(1);
@@ -69,13 +75,15 @@ static Duration getPingInterval(uint32_t sentPings) {
     }
 }
 
+static argon::AccountData g_argonData{};
+
 namespace globed {
 
 void GameServer::updateLatency(uint32_t latency) {
     if (avgLatency == -1) {
         avgLatency = latency;
     } else {
-        avgLatency = qn::exponentialMovingAverage(avgLatency, latency, 0.2);
+        avgLatency = qn::exponentialMovingAverage(avgLatency, latency, 0.4);
     }
 
     lastLatency = latency;
@@ -98,7 +106,7 @@ std::string_view connectionStateToStr(qn::ConnectionState state) {
 NetworkManagerImpl::NetworkManagerImpl() {
     m_hasSecure = bb_init();
 
-    // TODO: measure how much of an impact those have on bandwidth
+    // TODO (low): measure how much of an impact those have on bandwidth
     m_centralConn.setActiveKeepaliveInterval(Duration::fromSecs(45));
     m_gameConn.setActiveKeepaliveInterval(Duration::fromSecs(10));
 
@@ -150,7 +158,7 @@ NetworkManagerImpl::NetworkManagerImpl() {
             // if there was a deferred join, try to login with session, otherwise just login
             if (connInfo.m_gsDeferredJoin) {
                 auto& join = *connInfo.m_gsDeferredJoin;
-                this->sendGameLoginJoinRequest(join.id, join.platformer);
+                this->sendGameLoginRequest(join.id, join.platformer);
             } else {
                 this->sendGameLoginRequest();
             }
@@ -364,10 +372,12 @@ Result<> NetworkManagerImpl::connectCentral(std::string_view url) {
         return Err("Already connected to central server");
     }
 
+    g_argonData = argon::getGameAccountData();
+
     *m_pendingConnectUrl.lock() = std::string(url);
     m_pendingConnectNotify.notifyOne();
     m_manualDisconnect = false;
-    m_abortCause.lock()->clear();
+    m_abortCause.lock()->first.clear();
 
     FriendListManager::get().refresh();
 
@@ -383,6 +393,12 @@ Result<> NetworkManagerImpl::disconnectCentral() {
 
     this->disconnectInner();
 
+    return Ok();
+}
+
+Result<> NetworkManagerImpl::cancelConnection() {
+    m_centralConn.cancelConnection();
+    this->disconnectInner();
     return Ok();
 }
 
@@ -591,6 +607,19 @@ void NetworkManagerImpl::markAuthorizedModerator() {
     }
 }
 
+std::optional<FeaturedLevelMeta> NetworkManagerImpl::getFeaturedLevel() {
+    auto lock = m_connInfo.lock();
+    return *lock ? (**lock).m_featuredLevel : std::nullopt;
+}
+
+bool NetworkManagerImpl::hasViewedFeaturedLevel() {
+    return this->getLastFeaturedLevelId() == this->getFeaturedLevel().value_or(FeaturedLevelMeta{}).levelId;
+}
+
+void NetworkManagerImpl::setViewedFeaturedLevel() {
+    this->setLastFeaturedLevelId(this->getFeaturedLevel().value_or(FeaturedLevelMeta{}).levelId);
+}
+
 void NetworkManagerImpl::onCentralConnected() {
     globed::setValue<bool>("core.was-connected", true);
 
@@ -614,23 +643,13 @@ void NetworkManagerImpl::tryAuth() {
 
     if (auto stoken = this->getUToken()) {
         connInfo.startedAuth();
-
-        auto uid = this->computeUident(accountId);
-
-        this->sendToCentral([&](CentralMessage::Builder& msg) {
-            log::debug("attempting login with user token {}", *stoken);
-            auto loginUToken = msg.initLoginUToken();
-            loginUToken.setToken(*stoken);
-            loginUToken.setAccountId(accountId);
-            loginUToken.setUident(kj::ArrayPtr(uid.data(), uid.size()));
-            data::encode(gatherIconData(), loginUToken.initIcons());
-        });
+        this->sendCentralAuth(AuthKind::Utoken, *stoken);
     } else if (!connInfo.m_knownArgonUrl.empty()) {
         (void) argon::setServerUrl(connInfo.m_knownArgonUrl);
         connInfo.m_waitingForArgon = true;
         lock.unlock();
 
-        auto res = argon::startAuth([&](Result<std::string> res) {
+        auto res = argon::startAuthWithAccount(g_argonData, [this](Result<std::string> res) {
             auto lock = m_connInfo.lock();
             (**lock).m_waitingForArgon = false;
             (**lock).startedAuth();
@@ -641,7 +660,7 @@ void NetworkManagerImpl::tryAuth() {
                 return;
             }
 
-            this->doArgonAuth(std::move(*res));
+            this->sendCentralAuth(AuthKind::Argon, *res);
         });
 
         if (!res) {
@@ -651,36 +670,49 @@ void NetworkManagerImpl::tryAuth() {
         }
     } else {
         connInfo.startedAuth();
-
-        this->sendToCentral([&](CentralMessage::Builder& msg) {
-            log::debug("attempting plain login");
-            auto loginPlain = msg.initLoginPlain();
-            auto data = loginPlain.initData();
-            data.setUsername(gam->m_username);
-            data.setAccountId(accountId);
-            data.setUserId(userId);
-            data::encode(gatherIconData(), loginPlain.initIcons());
-        });
+        this->sendCentralAuth(AuthKind::Plain);
     }
 }
 
-void NetworkManagerImpl::doArgonAuth(std::string token) {
+void NetworkManagerImpl::sendCentralAuth(AuthKind kind, const std::string& token) {
     this->sendToCentral([&](CentralMessage::Builder& msg) {
-        auto accountId = GJAccountManager::get()->m_accountID;
-        auto uid = this->computeUident(accountId);
+        int accountId = GJAccountManager::get()->m_accountID;
+        int userId = GameManager::get()->m_playerUserID;
 
-        log::debug("attempting login with argon token ({})", accountId);
-        auto loginArgon = msg.initLoginArgon();
-        loginArgon.setToken(token);
-        loginArgon.setAccountId(accountId);
-        loginArgon.setUident(kj::ArrayPtr(uid.data(), uid.size()));
-        data::encode(gatherIconData(), loginArgon.initIcons());
+        auto login = msg.initLogin();
+        login.setAccountId(accountId);
+        data::encode(gatherIconData(), login.initIcons());
+        if (kind != AuthKind::Plain) {
+            auto uid = this->computeUident(accountId);
+            login.setUident(kj::arrayPtr(uid.data(), uid.size()));
+        }
+        gatherUserSettings(login.initSettings());
+
+        switch (kind) {
+            case AuthKind::Utoken: {
+                log::debug("attempting login with user token {}", token);
+                login.setUtoken(token);
+            } break;
+
+            case AuthKind::Argon: {
+                log::debug("attempting login with argon token ({})", accountId);
+                login.setArgon(token);
+            } break;
+
+            case AuthKind::Plain: {
+                log::debug("attempting plain login");
+                auto plain = login.initPlain();
+                plain.setAccountId(accountId);
+                plain.setUserId(userId);
+                plain.setUsername(GJAccountManager::get()->m_username);
+            } break;
+        }
     });
 }
 
-void NetworkManagerImpl::abortConnection(std::string reason) {
+void NetworkManagerImpl::abortConnection(std::string reason, bool silent) {
     log::warn("aborting connection to central server: {}", reason);
-    *m_abortCause.lock() = std::move(reason);
+    *m_abortCause.lock() = std::make_pair(std::move(reason), silent);
     (void) m_centralConn.disconnect();
 }
 
@@ -689,25 +721,35 @@ void NetworkManagerImpl::onCentralDisconnected() {
         globed::setValue<bool>("core.was-connected", false);
     }
 
-    bool manual = m_manualDisconnect;
+    bool showPopup = !m_manualDisconnect;
     std::string message = "client initiated disconnect";
 
-    if (!manual) {
+    if (!m_manualDisconnect) {
         auto abortCause = m_abortCause.lock();
 
-        if (!abortCause->empty()) {
-            message = std::move(*abortCause);
+        if (!abortCause->first.empty()) {
+            message = std::move(abortCause->first);
         } else {
-            message = m_centralConn.lastError().message();
+            auto err = m_centralConn.lastError();
+            if (err == qn::ConnectionError::Success) {
+                message = "Connection cancelled";
+            } else {
+                message = err.message();
+            }
+        }
+
+        // if this was a silent abort, don't show a popup
+        if (abortCause->second) {
+            showPopup = false;
         }
     }
 
     log::debug("connection to central server lost: {}", message);
 
-    Loader::get()->queueInMainThread([this, manual, message = std::move(message)] {
+    FunctionQueue::get().queue([this, showPopup, message = std::move(message)] {
         CoreImpl::get().onServerDisconnected();
 
-        if (!manual) {
+        if (showPopup) {
             auto alert = PopupManager::get().alertFormat("Globed Error", "Connection lost: <cy>{}</c>", message);
             alert.showQueue();
         }
@@ -780,7 +822,7 @@ void NetworkManagerImpl::joinSessionWith(std::string_view serverUrl, SessionId i
             // same server, just send the join request
             this->sendGameJoinRequest(id, platformer);
         } else {
-            this->sendGameLoginJoinRequest(id, platformer);
+            this->sendGameLoginRequest(id, platformer);
         }
     } else {
         // not connected, connect to the game server and join later
@@ -800,24 +842,19 @@ void NetworkManagerImpl::joinSessionWith(std::string_view serverUrl, SessionId i
     }
 }
 
-void NetworkManagerImpl::sendGameLoginJoinRequest(SessionId id, bool platformer) {
+void NetworkManagerImpl::sendGameLoginRequest(SessionId id, bool platformer) {
     this->sendToGame([&](GameMessage::Builder& msg) {
-        auto loginJoin = msg.initLoginUTokenAndJoin();
-        loginJoin.setAccountId(GJAccountManager::get()->m_accountID);
-        loginJoin.setToken(this->getUToken().value_or(""));
-        loginJoin.setSessionId(id);
-        loginJoin.setPasscode(RoomManager::get().getPasscode());
-        loginJoin.setPlatformer(platformer);
-        data::encode(gatherIconData(), loginJoin.initIcons());
-    });
-}
-
-void NetworkManagerImpl::sendGameLoginRequest() {
-    this->sendToGame([&](GameMessage::Builder& msg) {
-        auto login = msg.initLoginUToken();
+        auto login = msg.initLogin();
         login.setAccountId(GJAccountManager::get()->m_accountID);
         login.setToken(this->getUToken().value_or(""));
         data::encode(gatherIconData(), login.initIcons());
+        gatherUserSettings(login.initSettings());
+
+        if (id.asU64() != 0) {
+            login.setSessionId(id);
+            login.setPasscode(RoomManager::get().getPasscode());
+            login.setPlatformer(platformer);
+        }
     });
 }
 
@@ -884,7 +921,7 @@ void NetworkManagerImpl::queueLevelScript(const std::vector<EmbeddedScript>& scr
 void NetworkManagerImpl::sendLevelScript(const std::vector<EmbeddedScript>& scripts) {
     this->sendToGame([&](GameMessage::Builder& msg) {
         data::encode(scripts, msg.initSendLevelScript());
-    });
+    }, true, true);
 }
 
 void NetworkManagerImpl::queueGameEvent(OutEvent&& event) {
@@ -905,7 +942,19 @@ void NetworkManagerImpl::sendVoiceData(const EncodedAudioFrame& frame) {
             auto& fr = frame.getFrames()[i];
             frames.set(i, kj::arrayPtr(fr.data.get(), fr.size));
         }
-    }, false);
+    }, false, true);
+}
+
+void NetworkManagerImpl::sendUpdateUserSettings() {
+    this->sendToCentral([&](CentralMessage::Builder& msg) {
+        auto update = msg.initUpdateUserSettings();
+        gatherUserSettings(update.initSettings());
+    });
+
+    this->sendToGame([&](GameMessage::Builder& msg) {
+        auto update = msg.initUpdateUserSettings();
+        gatherUserSettings(update.initSettings());
+    });
 }
 
 void NetworkManagerImpl::sendRoomStateCheck() {
@@ -931,6 +980,28 @@ void NetworkManagerImpl::sendRequestGlobalPlayerList(const std::string& nameFilt
 void NetworkManagerImpl::sendRequestLevelList() {
     this->sendToCentral([&](CentralMessage::Builder& msg) {
         msg.initRequestLevelList();
+    });
+}
+
+void NetworkManagerImpl::sendRequestPlayerCounts(const std::vector<uint64_t>& sessions) {
+    return this->sendRequestPlayerCounts(std::span{sessions.data(), sessions.size()});
+}
+
+void NetworkManagerImpl::sendRequestPlayerCounts(std::span<const uint64_t> sessions) {
+    this->sendToCentral([&](CentralMessage::Builder& msg) {
+        auto reqr = msg.initRequestPlayerCounts();
+        reqr.setLevels(kj::arrayPtr(sessions.data(), sessions.size()));
+    });
+}
+
+void NetworkManagerImpl::sendRequestPlayerCounts(std::span<const SessionId> sessions) {
+    return this->sendRequestPlayerCounts(std::span{(const uint64_t*)sessions.data(), sessions.size()});
+}
+
+void NetworkManagerImpl::sendRequestPlayerCounts(uint64_t session) {
+    this->sendToCentral([&](CentralMessage::Builder& msg) {
+        auto reqr = msg.initRequestPlayerCounts();
+        reqr.setLevels(kj::arrayPtr(&session, 1));
     });
 }
 
@@ -1060,6 +1131,48 @@ void NetworkManagerImpl::sendDiscordLinkConfirm(int64_t id, bool confirm) {
     });
 }
 
+void NetworkManagerImpl::sendGetFeaturedList(uint32_t page) {
+    this->sendToCentral([&](CentralMessage::Builder& msg) {
+        auto m = msg.initGetFeaturedList();
+        m.setPage(page);
+    });
+}
+
+void NetworkManagerImpl::sendGetFeaturedLevel() {
+    this->sendToCentral([&](CentralMessage::Builder& msg) {
+        msg.setGetFeaturedLevel();
+    });
+}
+
+void NetworkManagerImpl::sendSendFeaturedLevel(
+    int32_t levelId,
+    const std::string& levelName,
+    int32_t authorId,
+    const std::string& authorName,
+    uint8_t rateTier,
+    const std::string& note,
+    bool queue
+) {
+    this->sendToCentral([&](CentralMessage::Builder& msg) {
+        auto m = msg.initSendFeaturedLevel();
+        m.setLevelId(levelId);
+        m.setLevelName(levelName);
+        m.setAuthorId(authorId);
+        m.setAuthorName(authorName);
+        m.setRateTier(rateTier);
+        m.setNote(note);
+        m.setQueue(queue);
+    });
+}
+
+void NetworkManagerImpl::sendNoticeReply(int32_t recipientId, const std::string& message) {
+    this->sendToCentral([&](CentralMessage::Builder& msg) {
+        auto m = msg.initNoticeReply();
+        m.setReceiverId(recipientId);
+        m.setMessage(message);
+    });
+}
+
 void NetworkManagerImpl::sendAdminNotice(const std::string& message, const std::string& user, int roomId, int levelId, bool canReply) {
     this->sendToCentral([&](CentralMessage::Builder& msg) {
         auto adminNotice = msg.initAdminNotice();
@@ -1104,6 +1217,14 @@ void NetworkManagerImpl::sendAdminFetchUser(const std::string& query) {
 void NetworkManagerImpl::sendAdminFetchMods() {
     this->sendToCentral([&](CentralMessage::Builder& msg) {
         auto fetchUser = msg.initAdminFetchMods();
+    });
+}
+
+void NetworkManagerImpl::sendAdminSetWhitelisted(int32_t accountId, bool whitelisted) {
+    this->sendToCentral([&](CentralMessage::Builder& msg) {
+        auto m = msg.initAdminSetWhitelisted();
+        m.setAccountId(accountId);
+        m.setWhitelisted(whitelisted);
     });
 }
 
@@ -1283,6 +1404,7 @@ Result<> NetworkManagerImpl::onCentralDataReceived(CentralMessage::Reader& msg) 
             connInfo.m_established = true;
             connInfo.m_perms = msg.perms;
             connInfo.m_nameColor = msg.nameColor;
+            connInfo.m_featuredLevel = msg.featuredLevel;
 
             for (auto& role : connInfo.m_userRoles) {
                 connInfo.m_userRoleIds.push_back(role.id);
@@ -1313,7 +1435,13 @@ Result<> NetworkManagerImpl::onCentralDataReceived(CentralMessage::Reader& msg) 
         } break;
 
         case CentralMessage::BANNED: {
-            // TODO
+            auto m = data::decodeUnchecked<msg::BannedMessage>(msg.getBanned());
+            this->invokeListeners(m);
+            this->abortConnection("User is banned from the server", true);
+        } break;
+
+        case CentralMessage::MUTED: {
+            this->invokeListeners(data::decodeUnchecked<msg::MutedMessage>(msg.getMuted()));
         } break;
 
         case CentralMessage::SERVERS_CHANGED: {
@@ -1388,7 +1516,7 @@ Result<> NetworkManagerImpl::onCentralDataReceived(CentralMessage::Reader& msg) 
         } break;
 
         case CentralMessage::ROOM_BANNED: {
-            // TODO
+            this->invokeListeners(data::decodeUnchecked<msg::RoomBannedMessage>(msg.getRoomBanned()));
         } break;
 
         case CentralMessage::ROOM_LIST: {
@@ -1457,6 +1585,7 @@ Result<> NetworkManagerImpl::onCentralDataReceived(CentralMessage::Reader& msg) 
                 .senderName = notice.getSenderName(),
                 .message = notice.getMessage(),
                 .canReply = notice.getCanReply(),
+                .isReply = notice.getIsReply(),
             });
         } break;
 
@@ -1474,6 +1603,17 @@ Result<> NetworkManagerImpl::onCentralDataReceived(CentralMessage::Reader& msg) 
 
         case CentralMessage::DISCORD_LINK_ATTEMPT: {
             this->invokeListeners(data::decodeUnchecked<msg::DiscordLinkAttemptMessage>(msg.getDiscordLinkAttempt()));
+        } break;
+
+        case CentralMessage::FEATURED_LEVEL: {
+            auto out = data::decodeUnchecked<msg::FeaturedLevelMessage>(msg.getFeaturedLevel());
+            (**m_connInfo.lock()).m_featuredLevel = out.meta;
+
+            this->invokeListeners(std::move(out));
+        } break;
+
+        case CentralMessage::FEATURED_LIST: {
+            this->invokeListeners(data::decodeUnchecked<msg::FeaturedListMessage>(msg.getFeaturedList()));
         } break;
 
         //
@@ -1580,6 +1720,10 @@ Result<> NetworkManagerImpl::onGameDataReceived(GameMessage::Reader& msg) {
             this->invokeListeners(data::decodeUnchecked<msg::VoiceBroadcastMessage>(msg.getVoiceBroadcast()));
         } break;
 
+        case GameMessage::CHAT_NOT_PERMITTED: {
+            this->invokeListeners(msg::ChatNotPermittedMessage{});
+        } break;
+
         case GameMessage::KICKED: {
             // TODO
         } break;
@@ -1630,66 +1774,15 @@ void NetworkManagerImpl::handleLoginFailed(schema::main::LoginFailedReason reaso
             this->abortConnection("Internal server error (invalid account data), please contact the developer!");
         } break;
 
+        case NOT_WHITELISTED: {
+            log::warn("Login failed: user is not whitelisted");
+            this->abortConnection("You are not whitelisted on this server!");
+        } break;
+
         default: {
             log::warn("Login failed: unknown reason {}", static_cast<int>(reason));
             this->abortConnection(fmt::format("Login failed due to unknown server error: {}", static_cast<int>(reason)));
         } break;
-    }
-}
-
-static Result<> encodeAndSend(
-    qn::Connection& conn,
-    std::function<void(capnp::MallocMessageBuilder&)> func,
-    bool reliable
-) {
-    capnp::MallocMessageBuilder msg;
-    func(msg);
-
-    size_t unpackedSize = capnp::computeSerializedSizeInWords(msg) * 8;
-    qn::HeapByteWriter writer;
-    writer.writeVarUint(unpackedSize).unwrap();
-    auto unpSizeBuf = writer.written();
-
-    kj::VectorOutputStream vos;
-    vos.write(unpSizeBuf.data(), unpSizeBuf.size());
-    capnp::writePackedMessage(vos, msg);
-
-    auto data = std::vector<uint8_t>(vos.getArray().begin(), vos.getArray().end());
-
-    conn.sendData(std::move(data), reliable);
-
-    return Ok();
-}
-
-void NetworkManagerImpl::sendToCentral(std::function<void(CentralMessage::Builder&)> func) {
-    if (!m_centralConn.connected()) {
-        log::warn("Failed to send message: not connected to central server!");
-        return;
-    }
-
-    auto res = encodeAndSend(m_centralConn, [&](capnp::MallocMessageBuilder& msg) {
-        auto root = msg.initRoot<CentralMessage>();
-        func(root);
-    }, true);
-
-    if (!res) {
-        log::warn("Failed to send message to central server: {}", res.unwrapErr());
-    }
-}
-
-void NetworkManagerImpl::sendToGame(std::function<void(GameMessage::Builder&)> func, bool reliable) {
-    if (!m_gameConn.connected()) {
-        log::warn("Failed to send message: not connected to game server!");
-        return;
-    }
-
-    auto res = encodeAndSend(m_gameConn, [&](capnp::MallocMessageBuilder& msg) {
-        auto root = msg.initRoot<GameMessage>();
-        func(root);
-    }, reliable);
-
-    if (!res) {
-        log::warn("Failed to send message to game server: {}", res.unwrapErr());
     }
 }
 
@@ -1708,6 +1801,14 @@ void NetworkManagerImpl::setUToken(std::string token) {
 
 void NetworkManagerImpl::clearUToken() {
     ValueManager::get().erase(fmt::format("auth.last-utoken.{}", this->getCentralIdent()));
+}
+
+int32_t NetworkManagerImpl::getLastFeaturedLevelId() {
+    return globed::value<int32_t>(fmt::format("core.last-featured-id.{}", this->getCentralIdent())).value_or(0);
+}
+
+void NetworkManagerImpl::setLastFeaturedLevelId(int32_t id) {
+    ValueManager::get().set(fmt::format("core.last-featured-id.{}", this->getCentralIdent()), id);
 }
 
 std::vector<uint8_t> NetworkManagerImpl::computeUident(int accountId) {

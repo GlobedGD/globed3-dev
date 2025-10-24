@@ -30,10 +30,16 @@
             "resources/misc/*.png",
             "resources/menu/*.png",
             "resources/editor/*.png",
+            "resources/featured/*.png",
             "resources/roles/*.png",
             "resources/mod/*.png",
             "resources/game/*.png"
         ],
+        "spritesheets": {
+            "emojis": [
+                "resources/emoji/*.png"
+            ]
+        },
         "fonts": {
             "Consolas": {
                 "path": "resources/fonts/Consolas-Regular.ttf",

@@ -5,6 +5,8 @@
 #include <globed/core/game/RemotePlayer.hpp>
 #include <globed/core/net/MessageListener.hpp>
 #include <globed/core/data/Messages.hpp>
+#include <ui/game/VoiceOverlay.hpp>
+#include <ui/game/PingOverlay.hpp>
 #include <core/game/Interpolator.hpp>
 #include <core/game/SpeedTracker.hpp>
 
@@ -31,7 +33,9 @@ struct GLOBED_MODIFY_ATTR GlobedGJBGL : geode::Modify<GlobedGJBGL, GJBaseGameLay
         bool m_active = false;
         bool m_editor = false;
         bool m_didSchedule = false;
+        bool m_quitting = false;
         float m_sendDataInterval = 0.0f;
+        float m_periodicalDelta = 0.f;
         std::vector<std::string> m_customSchedules;
 
         float m_timeCounter = 0.0f;
@@ -46,6 +50,7 @@ struct GLOBED_MODIFY_ATTR GlobedGJBGL : geode::Modify<GlobedGJBGL, GJBaseGameLay
         float m_lastDataRequest = 0.f;
         std::optional<MessageListener<msg::LevelDataMessage>> m_levelDataListener;
         std::optional<MessageListener<msg::VoiceBroadcastMessage>> m_voiceListener;
+        std::optional<MessageListener<msg::ChatNotPermittedMessage>> m_mutedListener;
 
         uint8_t m_deathCount = 0;
         bool m_lastLocalDeathReal = false;
@@ -55,10 +60,18 @@ struct GLOBED_MODIFY_ATTR GlobedGJBGL : geode::Modify<GlobedGJBGL, GJBaseGameLay
         bool m_permanentSafeMode = false;
         bool m_playersHidden = false;
         bool m_isVoiceProximity = false;
+        bool m_noGlobalCulling = false;
+        bool m_sendExtData = false;
+        bool m_knownServerMuted = false;
+        bool m_deafened = false;
 
         CCNode* m_playerNode = nullptr;
-        geode::Ref<CCNode> m_progressBarContainer = nullptr;
-        ProgressIcon* m_selfProgressIcon = nullptr;
+        Ref<CCNode> m_progressBarContainer;
+        Ref<ProgressIcon> m_selfProgressIcon;
+        Ref<PlayerStatusIcons> m_selfStatusIcons;
+        Ref<NameLabel> m_selfNameLabel;
+        Ref<VoiceOverlay> m_voiceOverlay;
+        Ref<PingOverlay> m_pingOverlay;
     };
 
     // Setup functions
@@ -85,6 +98,8 @@ struct GLOBED_MODIFY_ATTR GlobedGJBGL : geode::Modify<GlobedGJBGL, GJBaseGameLay
     // Schedules
     void selUpdateProxy(float dt);
     void selUpdate(float dt);
+    void selPeriodicalUpdate(float dt);
+
     void selPostInitActions(float dt);
     void selSendPlayerData(float dt);
 
@@ -95,6 +110,7 @@ struct GLOBED_MODIFY_ATTR GlobedGJBGL : geode::Modify<GlobedGJBGL, GJBaseGameLay
     bool isCurrentPlayLayer();
     bool isManuallyResetting();
     bool isSafeMode();
+    bool isQuitting();
     void handlePlayerJoin(int playerId);
     void handlePlayerLeave(int playerId);
     void handleLocalPlayerDeath(PlayerObject*);
@@ -117,12 +133,14 @@ struct GLOBED_MODIFY_ATTR GlobedGJBGL : geode::Modify<GlobedGJBGL, GJBaseGameLay
     GameCameraState getCameraState();
     RemotePlayer* getPlayer(int playerId);
 
+    void toggleCullingEnabled(bool culling);
+    void toggleExtendedData(bool extended);
     void toggleHidePlayers();
     void toggleDeafen();
     void resumeVoiceRecording();
     void pauseVoiceRecording();
 
-    void customSchedule(const std::string& id, std::function<void(GlobedGJBGL*, float)>&& f, float interval);
+    void customSchedule(const std::string& id, std23::move_only_function<void(GlobedGJBGL*, float)>&& f, float interval);
     void customUnschedule(const std::string& id);
     void customUnscheduleAll();
 
@@ -130,6 +148,7 @@ private:
     void onLevelDataReceived(const msg::LevelDataMessage& message);
     void onVoiceDataReceived(const msg::VoiceBroadcastMessage& message);
     float calculateVolumeFor(int playerId);
+    void updateProximityVolume(int playerId);
 };
 
 }

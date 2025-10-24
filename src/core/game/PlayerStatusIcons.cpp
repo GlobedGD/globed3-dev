@@ -24,13 +24,11 @@ void PlayerStatusIcons::updateStatus(const PlayerStatusFlags& flags, bool force)
 
     m_flags = flags;
 
+    this->removeAllChildren();
+
     if (!flags.paused && !flags.practicing && !flags.speaking && !flags.editing && !flags.speakingMuted) {
-        this->setVisible(false);
         return;
     }
-
-    this->setVisible(true);
-    this->removeAllChildren();
 
     m_iconWrapper = Build<CCNode>::create()
         .anchorPoint(0.f, 0.5f)
@@ -70,12 +68,12 @@ void PlayerStatusIcons::updateStatus(const PlayerStatusFlags& flags, bool force)
         const char* sprite;
 
         if (flags.speakingMuted) {
-            sprite = "speaking-icon-mute.png"_spr;
+            sprite = "speaker-icon-mute.png"_spr;
         } else {
             sprite = "speaker-icon.png"_spr;
         }
 
-        addButton(CCSprite::createWithSpriteFrameName(sprite), "icon-speaking");
+        addButton(CCSprite::create(sprite), "icon-speaking");
     }
 
     if (flags.editing) {

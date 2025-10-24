@@ -10,14 +10,7 @@ using namespace geode::prelude;
 
 namespace globed {
 
-static const PlayerDisplayData DUMMY_DATA = {
-    .accountId = 0,
-    .userId = 0,
-    .username = "Player",
-    .icons = { 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 3, NO_GLOW, 1, NO_TRAIL, NO_TRAIL }
-};
-
-RemotePlayer::RemotePlayer(int playerId, GJBaseGameLayer* gameLayer, CCNode* parentNode) : m_state(), m_parentNode(parentNode) {
+    RemotePlayer::RemotePlayer(int playerId, GJBaseGameLayer* gameLayer, CCNode* parentNode) : m_state(), m_parentNode(parentNode) {
     m_state.accountId = playerId;
 
     Build<VisualPlayer>::create(gameLayer, this, m_parentNode, false)
@@ -35,20 +28,22 @@ RemotePlayer::RemotePlayer(int playerId, GJBaseGameLayer* gameLayer, CCNode* par
     m_player1->m_remotePlayer = this;
     m_player2->m_remotePlayer = this;
 
-    m_data = DUMMY_DATA;
+    m_data = DEFAULT_PLAYER_DATA;
 
     m_player1->updateDisplayData();
     m_player2->updateDisplayData();
 
     bool plat = gameLayer->m_level->isPlatformer();
 
-    if (globed::setting<bool>("core.level.progress-indicators") && !gameLayer->m_isEditor) {
-        if (plat) {
+    // progress icon
+    if (!gameLayer->m_isEditor) {
+        if (plat && globed::setting<bool>("core.level.progress-indicators-plat")) {
             m_progArrow = Build<ProgressArrow>::create()
                 .zOrder(2)
                 .id(fmt::format("remote-player-progress-{}"_spr, playerId))
                 .parent(gameLayer);
-        } else {
+
+        } else if (!plat && globed::setting<bool>("core.level.progress-indicators")) {
             auto gjbgl = GlobedGJBGL::get(gameLayer);
 
             m_progIcon = Build<ProgressIcon>::create()
@@ -75,16 +70,16 @@ void RemotePlayer::update(const PlayerState& state, const GameCameraState& camSt
     m_state = state;
 
     if (m_state.player1) {
-        m_player1->updateFromData(*m_state.player1, m_state, camState);
+        m_player1->updateFromData(*m_state.player1, m_state, camState, forceHide);
+    } else {
+        m_player1->setVisible(false);
     }
-
-    m_player1->setVisible(m_state.player1 && !forceHide);
 
     if (m_state.player2) {
-        m_player2->updateFromData(*m_state.player2, m_state, camState);
+        m_player2->updateFromData(*m_state.player2, m_state, camState, forceHide);
+    } else {
+        m_player2->setVisible(false);
     }
-
-    m_player2->setVisible(m_state.player2 && !forceHide);
 
     // update progress icons
 

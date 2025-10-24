@@ -1,4 +1,5 @@
 #include <globed/audio/VolumeEstimator.hpp>
+#include <asp/iter.hpp>
 
 using namespace geode::prelude;
 
@@ -22,10 +23,9 @@ void VolumeEstimator::feedData(const float* pcm, size_t samples) {
 }
 
 static float calculatePcmVolume(const float* pcm, size_t samples) {
-    double sum = 0.0;
-    for (size_t i = 0; i < samples; i++) {
-        sum += pcm[i] * pcm[i];
-    }
+    if (samples == 0) return 0.f;
+
+    double sum = asp::iter::from(pcm, samples).map([](float v) { return v * v; }).sum();
 
     return static_cast<float>(sqrt(sum / (double)samples));
 }
@@ -54,11 +54,14 @@ void VolumeEstimator::update(float dt) {
     }
 
     float newVolume = calculatePcmVolume(buf, needed);
-    m_volume = qn::exponentialMovingAverage(m_volume, newVolume, 0.2);
+    m_emaVolume = qn::exponentialMovingAverage(m_emaVolume, newVolume, 0.2);
+
+    // this / 0.2f might need some tweaking
+    m_normalizedVolume = std::powf(std::clamp(m_emaVolume / 0.2f, 0.f, 1.f), 0.5f);
 }
 
 float VolumeEstimator::getVolume() {
-    return m_volume;
+    return m_normalizedVolume;
 }
 
 }

@@ -4,6 +4,7 @@
 #include <UIBuilder.hpp>
 #include <cue/PlayerIcon.hpp>
 #include <asp/time/SystemTime.hpp>
+#include <asp/iter.hpp>
 
 using namespace geode::prelude;
 using namespace asp::time;
@@ -229,8 +230,21 @@ private:
         if (isPunishment) {
             msgStr = fmt::format("Reason: {}", log.message);
         } else if (log.type == "editroles") {
-            // TODO: format more neatly
-            msgStr = log.message;
+            auto added = asp::iter::split(log.message, ',')
+                .filterMap([](const auto& sv) { return sv.starts_with('+') ? std::optional{sv.substr(1)} : std::nullopt; })
+                .collect();
+            auto removed = asp::iter::split(log.message, ',')
+                .filterMap([](const auto& sv) { return sv.starts_with('-') ? std::optional{sv.substr(1)} : std::nullopt; })
+                .collect();
+
+            if (added.size()) {
+                msgStr += fmt::format("Added: {}", fmt::join(added, ", "));
+            }
+
+            if (removed.size()) {
+                if (!added.empty()) msgStr += "; ";
+                msgStr += fmt::format("Removed: {}", fmt::join(removed, ", "));
+            }
         }
 
         if (!msgStr.empty()) {
@@ -282,8 +296,9 @@ private:
     }
 };
 
-bool ModAuditLogPopup::setup() {
+bool ModAuditLogPopup::setup(FetchLogsFilters filters) {
     ccColor4B bg{ 105, 61, 31, 255 };
+    m_filters = std::move(filters);
 
     m_loadingCircle = cue::LoadingCircle::create();
     m_loadingCircle->addToLayer(m_mainLayer);
@@ -392,6 +407,10 @@ void ModAuditLogPopup::refetch() {
 
     auto& nm = NetworkManagerImpl::get();
     nm.sendAdminFetchLogs(m_filters);
+}
+
+ModAuditLogPopup* ModAuditLogPopup::create(FetchLogsFilters filters) {
+    return BasePopup::create(std::move(filters));
 }
 
 }

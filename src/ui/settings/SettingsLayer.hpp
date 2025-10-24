@@ -2,7 +2,8 @@
 
 #include <ui/BaseLayer.hpp>
 #include <cue/ListNode.hpp>
-#include "BaseSettingCell.hpp"
+#include <globed/util/CStr.hpp>
+#include "cells/BaseSettingCell.hpp"
 
 namespace globed {
 
@@ -18,12 +19,16 @@ private:
     void addSettings();
 
     template <typename T>
-    void addSetting(CStr key, CStr name, CStr desc) {
-        this->addSetting(T::create(key, name, desc, CELL_SIZE));
+    T* addSetting(CStr key, CStr name, CStr desc) {
+        auto cell = T::create(key, name, desc, CELL_SIZE);
+        this->addSetting(cell);
+        return cell;
     }
 
     void addHeader(CStr key, CStr text);
-    void addSetting(CCNode* cell);
+    void addSetting(BaseSettingCellBase* cell);
+
+    void refreshAll();
 };
 
 }

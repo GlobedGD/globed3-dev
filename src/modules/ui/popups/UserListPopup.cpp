@@ -103,13 +103,13 @@ bool UserListPopup::setup() {
 
     Build<CCSprite>::createSpriteName("GJ_reportBtn_001.png")
         .scale(0.5f)
-        .intoMenuItem([this](auto) {
+        .intoMenuItem(+[] {
             createQuickPopup(
                 "Reporting",
                 "Someone <cr>breaking</c> the <cl>Globed</c> rules?\n<cg>Join</c> the <cl>Globed</c> discord and <cr>report</c> them there!",
                 "Cancel",
                 "Join",
-                [this](auto, bool btn2) {
+                +[](FLAlertLayer*, bool btn2) {
                     if (btn2) {
                         geode::utils::web::openLinkInBrowser(globed::constant<"discord">());
                     }
@@ -133,8 +133,7 @@ bool UserListPopup::setup() {
 
     m_volumeSlider->setContentWidth(80.f);
     m_volumeSlider->setRange(0.0, 2.0);
-    // TODO
-    // m_volumeSlider->setValue(GlobedSettings::get().communication.voiceVolume);
+    m_volumeSlider->setValue(globed::setting<float>("core.audio.playback-volume"));
     m_volumeSlider->setCallback([this](cue::Slider* slider, double value) {
         this->onVolumeChanged(value);
     });
@@ -233,7 +232,7 @@ void UserListPopup::hardRefresh() {
 }
 
 void UserListPopup::onVolumeChanged(double value) {
-    // TODO: set volume
+    globed::setting<float>("core.audio.playback-volume") = value;
 }
 
 }

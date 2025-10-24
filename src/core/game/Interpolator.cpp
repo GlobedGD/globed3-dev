@@ -1,8 +1,9 @@
 #include "Interpolator.hpp"
 #include <globed/util/algo.hpp>
+#include <globed/core/ValueManager.hpp>
 
-#ifdef GLOBED_DEBUG_INTERPOLATION
-# define LERP_LOG(...) log::debug(__VA_ARGS__)
+#ifdef GLOBED_DEBUG
+# define LERP_LOG(...) if (::lerpDebug()) log::debug(__VA_ARGS__)
 #else
 # define LERP_LOG(...) do {} while (0)
 #endif
@@ -12,6 +13,11 @@ constexpr float TIME_DRIFT_SMALL_THRESHOLD = 0.05f; // 50ms
 constexpr float TIME_DRIFT_SMALL_ADJ_DEADLINE = 30.0f; // 30s
 
 using namespace geode::prelude;
+
+static inline bool lerpDebug() {
+    static bool val = Loader::get()->getLaunchFlag("globed/core.dev.lerp-debug");
+    return val;
+}
 
 namespace globed {
 
@@ -54,12 +60,18 @@ void Interpolator::updatePlayer(const PlayerState& player, float curTimestamp) {
 
     bool culled = !player.player1;
 
+    // if the player paused and tabbed out, no update packets are sent, in which case
+    // the timestamp will not increase. if we just happen to join the level, the player will thus be stuck at 0,0,
+    // since we will only have 1 unique frame until they unpause
+    // for this reason, we forcibly ignore repeated frames if there is only 1 frame
+    bool ignoreRepeated = state.frames.size() < 2;
+
     state.totalFrames++;
 
     if (!state.frames.empty()) {
         auto& prevFrame = state.newestFrame();
-        // ignore repeated frames
-        if (player.timestamp == prevFrame.timestamp) {
+        // ignore repeated frames (except if there is < 2 frames)
+        if (player.timestamp == prevFrame.timestamp && !ignoreRepeated) {
             LERP_LOG("[Interpolator] Ignoring repeated frame for player {} at timestamp {}", player.accountId, player.timestamp);
             return;
         }
@@ -94,7 +106,7 @@ void Interpolator::updatePlayer(const PlayerState& player, float curTimestamp) {
     }
 
     // assert that the frame is newer than the last one
-    if (!state.frames.empty()) {
+    if (!state.frames.empty() && !ignoreRepeated) {
         float timeDifference = player.timestamp - state.newestFrame().timestamp;
         if (timeDifference <= 0.f) {
             LERP_LOG("[Interpolator] Frame for player {} is not newer than the last one: {} <= {}",
@@ -167,6 +179,7 @@ struct LerpContext {
     CCPoint cameraVector;
     bool camStationary;
     bool platformer;
+    bool cameraCorrections;
 };
 
 static inline void lerpSpecific(
@@ -207,38 +220,60 @@ static inline void lerpSpecific(
     // if both us and this player are moving, try to use the guessed position as long as it is close enough,
     // this will result in smoother movement for an FPS that is not a factor of 240
 
-    constexpr float closeAllowance = 25.0f;
-    constexpr float stillAllowance = 7.0f;
+    if (ctx.cameraCorrections) {
+        constexpr float closeAllowance = 25.0f;
+        constexpr float stillAllowance = 7.0f;
 
-    bool cameraMovesX = std::fabs(ctx.cameraVector.x) > stillAllowance;
-    bool cameraMovesY = std::fabs(ctx.cameraVector.y) > stillAllowance;
+        bool cameraMovesX = std::fabs(ctx.cameraVector.x) > stillAllowance;
+        bool cameraMovesY = std::fabs(ctx.cameraVector.y) > stillAllowance;
 
-    bool playerMovesX = std::fabs(speedVec.first) >= stillAllowance;
-    bool playerMovesY = std::fabs(speedVec.second) >= stillAllowance;
+        bool playerMovesX = std::fabs(speedVec.first) >= stillAllowance;
+        bool playerMovesY = std::fabs(speedVec.second) >= stillAllowance;
 
-    bool similarSpeedX = std::fabs(speedVec.first - ctx.cameraVector.x) < closeAllowance;
-    bool similarSpeedY = std::fabs(speedVec.second - ctx.cameraVector.y) < closeAllowance;
+        bool similarSpeedX = std::fabs(speedVec.first - ctx.cameraVector.x) < closeAllowance;
+        bool similarSpeedY = std::fabs(speedVec.second - ctx.cameraVector.y) < closeAllowance;
 
-    float guessAllowanceX = std::fabs(ctx.cameraVector.x) / 50.f;
-    float guessAllowanceY = std::fabs(ctx.cameraVector.y) / 50.f;
+        float guessAllowanceX = std::fabs(ctx.cameraVector.x) / 50.f;
+        float guessAllowanceY = std::fabs(ctx.cameraVector.y) / 50.f;
 
-    LERP_LOG(
-        "[Interpolator] speedVec: {}, cameraVec: {}, guessallowx: {}, newx: {}, outx: {}",
-        speedVec.first,
-        ctx.cameraVector.x,
-        guessAllowanceX,
-        newGuessed.x,
-        out.position.x
-    );
+        LERP_LOG(
+            "[Interpolator] speedVec: {}, cameraVec: {}, guessallowx: {}, newx: {}, outx: {}",
+            speedVec.first,
+            ctx.cameraVector.x,
+            guessAllowanceX,
+            newGuessed.x,
+            out.position.x
+        );
 
-    if (cameraMovesX && playerMovesX && similarSpeedX && std::abs(newGuessed.x - out.position.x) < guessAllowanceX) {
-        LERP_LOG("[Interpolator] Rounding up X position from {} to {} for player", out.position.x, newGuessed.x);
-        out.position.x = newGuessed.x;
+        if (cameraMovesX && playerMovesX && similarSpeedX && std::abs(newGuessed.x - out.position.x) < guessAllowanceX) {
+            LERP_LOG("[Interpolator] Rounding up X position from {} to {} for player", out.position.x, newGuessed.x);
+            out.position.x = newGuessed.x;
+        }
+
+        if (cameraMovesY && playerMovesY && similarSpeedY && std::abs(newGuessed.y - out.position.y) < guessAllowanceY) {
+            LERP_LOG("[Interpolator] Rounding up Y position from {} to {} for player", out.position.y, newGuessed.y);
+            out.position.y = newGuessed.y;
+        }
     }
 
-    if (cameraMovesY && playerMovesY && similarSpeedY && std::abs(newGuessed.y - out.position.y) < guessAllowanceY) {
-        LERP_LOG("[Interpolator] Rounding up Y position from {} to {} for player", out.position.y, newGuessed.y);
-        out.position.y = newGuessed.y;
+    // interpolate ext data
+
+    if (older.extData && newer.extData) {
+        auto& a = *older.extData;
+        auto& b = *newer.extData;
+
+        auto ed = ExtendedPlayerData{};
+        ed.velocityX = std::lerp(a.velocityX, b.velocityX, ctx.t);
+        ed.velocityY = std::lerp(a.velocityY, b.velocityY, ctx.t);
+        ed.accelerating = a.accelerating;
+        ed.acceleration = std::lerp(a.acceleration, b.acceleration, ctx.t);
+        ed.fallStartY = a.fallStartY;
+        ed.isOnGround2 = a.isOnGround2;
+        ed.gravityMod = a.gravityMod;
+        ed.gravity = a.gravity;
+        ed.touchedPad = a.touchedPad;
+
+        out.extData = ed;
     }
 }
 
@@ -303,7 +338,7 @@ void Interpolator::tick(float dt, CCPoint cameraDelta, CCPoint cameraVector) {
             auto& a = player.frames[i];
             auto& b = player.frames[i + 1];
 
-            if (a.timestamp <= player.timeCounter && b.timestamp > player.timeCounter) {
+            if (a.timestamp <= player.timeCounter && b.timestamp >= player.timeCounter) {
                 older = &a;
                 newer = &b;
                 break;
@@ -343,7 +378,7 @@ void Interpolator::tick(float dt, CCPoint cameraDelta, CCPoint cameraVector) {
         }
 
         float frameDelta = newer->timestamp - older->timestamp;
-        float t = (player.timeCounter - older->timestamp) / frameDelta;
+        float t = frameDelta == 0.0f ? 0.0f : (player.timeCounter - older->timestamp) / frameDelta;
 
         LerpContext ctx {
             t,
@@ -351,6 +386,7 @@ void Interpolator::tick(float dt, CCPoint cameraDelta, CCPoint cameraVector) {
             cameraVector,
             camStationary,
             m_platformer,
+            m_cameraCorrections,
         };
         lerpPlayer(*older, *newer, player.interpolatedState, ctx, player.p1speedTracker, player.p2speedTracker);
 
@@ -391,6 +427,10 @@ void Interpolator::setLowLatencyMode(bool enable) {
 
 void Interpolator::setRealtimeMode(bool enable) {
     m_realtime = enable;
+}
+
+void Interpolator::setCameraCorrections(bool enable) {
+    m_cameraCorrections = enable;
 }
 
 void Interpolator::setPlatformer(bool enable) {

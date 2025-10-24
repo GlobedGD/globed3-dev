@@ -1,7 +1,11 @@
 #include <globed/core/PopupManager.hpp>
 #include <globed/util/CCData.hpp>
 #include <core/hooks/GJBaseGameLayer.hpp>
+#include <ui/BasePopup.hpp>
+#include <ui/Emojis.hpp>
 
+#include <AdvancedLabel.hpp>
+#include <UIBuilder.hpp>
 #include <asp/time/SystemTime.hpp>
 #include <asp/data/Cow.hpp>
 
@@ -103,6 +107,81 @@ bool PopupRef::hasFields() const {
     return typeinfo_cast<DataT*>(inner->getUserObject(FIELDS_ID));
 }
 
+// CustomFLAlert
+
+class CustomFLAlert : public BasePopup<CustomFLAlert, CStr, CStr, CStr, cocos2d::CCNode*> {
+public:
+    static CustomFLAlert* create(CStr title, std::string_view content, CStr btn1, CStr btn2, float width);
+
+private:
+    bool setup(CStr title, CStr btn1, CStr btn2, CCNode* content) override;
+};
+
+bool CustomFLAlert::setup(CStr title, CStr btn1, CStr btn2, CCNode* content) {
+    m_closeBtn->setVisible(false);
+
+    content->setPosition(m_size.width / 2.f, m_size.height / 2.f + 5.f);
+    m_mainLayer->addChild(content);
+
+    this->setTitle(title.get(), "goldFont.fnt", 0.9f, 25.f);
+
+    // confirm / cancel buttons
+    auto bottomMenu = Build<CCMenu>::create()
+        .layout(RowLayout::create()->setGap(3.f)->setAutoScale(false))
+        .contentSize(m_size.width, 60.f)
+        .pos(this->fromBottom(27.f))
+        .parent(m_mainLayer)
+        .collect();
+
+    Build<ButtonSprite>::create(btn1, "goldFont.fnt", "GJ_button_01.png", 1.0f)
+        .scale(0.85f)
+        .intoMenuItem([this] {
+            this->onClose(nullptr);
+        })
+        .scaleMult(1.15f)
+        .parent(bottomMenu);
+
+    if (btn2) {
+        Build<ButtonSprite>::create(btn2, "goldFont.fnt", "GJ_button_01.png", 1.0f)
+            .scale(0.85f)
+            .intoMenuItem([this] {
+                this->onClose(nullptr);
+            })
+            .scaleMult(1.15f)
+            .parent(bottomMenu);
+    }
+
+    bottomMenu->updateLayout();
+
+    return true;
+
+}
+CustomFLAlert* CustomFLAlert::create(
+    CStr title,
+    std::string_view content,
+    CStr btn1,
+    CStr btn2,
+    float width
+) {
+    std::string cont = std::string(content);
+    globed::translateEmojiString(cont);
+
+    auto label = Label::createWrapped("", "chatFont.fnt", BMFontAlignment::Center, width);
+    label->enableEmojis("emojis.png"_spr, getEmojiMap());
+    label->setString(cont);
+
+    CCSize size = label->getScaledContentSize() + CCSize{20.f, 120.f};
+
+    auto ret = new CustomFLAlert();
+    if (ret->initAnchored(std::max<float>(size.width, 350.f), size.height, title, btn1, btn2, label, "square01_001.png", {0.f, 0.f, 94.f, 94.f})) {
+        ret->autorelease();
+        return ret;
+    }
+
+    delete ret;
+    return nullptr;
+}
+
 // PopupManager
 
 
@@ -129,9 +208,13 @@ PopupRef PopupManager::quickPopup(
     FLAlertLayer* alert;
 
     if (!callback) {
-        alert = FLAlertLayer::create(nullptr, title, content, btn1, btn2.getOrNull(), width);
+        if (globed::containsEmoji(content)) {
+            alert = CustomFLAlert::create(title, content, btn1, btn2.getOrNull(), width);
+        } else {
+            alert = FLAlertLayer::create(nullptr, title, content, btn1, btn2.getOrNull(), width);
+        }
     } else {
-        alert = geode::createQuickPopup(title, content, btn1, btn2.getOrNull(), [callback = std::move(callback)](auto alert, bool btn2) {
+        alert = geode::createQuickPopup(title, content, btn1, btn2.getOrNull(), width, [callback = std::move(callback)](auto alert, bool btn2) {
             callback(alert, btn2);
         }, false);
     }
@@ -262,6 +345,10 @@ void PopupManager::changedScene(CCScene* newScene) {
 }
 
 void toast(geode::NotificationIcon icon, float duration, const std::string& message) {
+    Notification::create(message, icon, duration)->show();
+}
+
+void toast(cocos2d::CCSprite* icon, float duration, const std::string& message) {
     Notification::create(message, icon, duration)->show();
 }
 
