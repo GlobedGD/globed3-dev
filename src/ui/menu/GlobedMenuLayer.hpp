@@ -31,14 +31,11 @@ private:
     CCMenuItemSpriteExtra* m_editServerButton;
     CCLabelBMFont* m_serverNameLabel;
     CCMenuItemSpriteExtra* m_connectButton;
-<<<<<<< HEAD
     cocos2d::CCLabelBMFont* m_connStateLabel;
     cocos2d::CCMenu* m_bottomMenu;
-=======
     CCLabelBMFont* m_connStateLabel;
     CCNode* m_connStateContainer;
     CCMenuItemSpriteExtra* m_cancelConnButton;
->>>>>>> rewrite
     MenuState m_state = MenuState::None;
     ConnectionState m_lastConnState;
 
