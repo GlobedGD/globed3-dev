@@ -28,12 +28,12 @@ public:
 private:
     CCMenu* m_connectMenu;
     CCScale9Sprite* m_connectMenuBg;
+    CCScale9Sprite* m_serverNameBg;
     CCMenuItemSpriteExtra* m_editServerButton;
     CCLabelBMFont* m_serverNameLabel;
     CCMenuItemSpriteExtra* m_connectButton;
     cocos2d::CCLabelBMFont* m_connStateLabel;
     cocos2d::CCMenu* m_bottomMenu;
-    CCLabelBMFont* m_connStateLabel;
     CCNode* m_connStateContainer;
     CCMenuItemSpriteExtra* m_cancelConnButton;
     MenuState m_state = MenuState::None;

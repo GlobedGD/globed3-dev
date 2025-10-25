@@ -80,7 +80,7 @@ void SettingsLayer::addSettings() {
     this->addSetting<BoolSettingCell>("core.ui.compressed-player-count", "Simple Player Count", "Uses an icon instead of 'X Players' text.");
     this->addSetting(ButtonSettingCell::create("Discord Linking", "Connects your Geometry Dash account to your Discord account via a unique code.", "Link", [this] {
         if (!NetworkManagerImpl::get().isConnected()) {
-            globed::alert("Error", "Cannot link while not connected to a server!\nConnect to any server and try again.");
+            globed::alert("Error", "Cannot link while not connected to a server. Connect to a server and try again.");
             return;
         }
 
@@ -92,32 +92,41 @@ void SettingsLayer::addSettings() {
 
     // Player settings
     this->addHeader("core.player", "Players");
-    this->addSetting<FloatSettingCell>("core.player.opacity", "Player Opacity", "Changes the opacity of other players.");
-    this->addSetting<BoolSettingCell>("core.player.show-names", "Player Names", "Shows player names above their icons.");
-    this->addSetting<BoolSettingCell>("core.player.dual-name", "Player Dual Names", "Shows the players name above their Player 1 and Player 2 icons.");
-    this->addSetting<FloatSettingCell>("core.player.name-opacity", "Name Opacity", "Changes the opacity of player names.");
-    this->addSetting<BoolSettingCell>("core.player.force-visibility", "Force Visibility", "Forces player visibility in levels.");
-    this->addSetting<BoolSettingCell>("core.player.hide-nearby", "Hide Nearby Players", "Hide players that are close to you.");
-    this->addSetting<BoolSettingCell>("core.player.hide-practicing", "Hide Practicing Players", "");
-    this->addSetting<BoolSettingCell>("core.player.status-icons", "Show Status Icons", "Shows icons for players that are in practice mode, have muted voice chat, etc.");
-    this->addSetting<BoolSettingCell>("core.player.rotate-names", "Rotate Names", "Rotates names with the camera.");
-    this->addSetting<BoolSettingCell>("core.player.death-effects", "Death Effects", "Show players' death effects.");
-    this->addSetting<BoolSettingCell>("core.player.default-death-effects", "Default Death Effects", "Changes all other players' death effects to the default one.");
+    this->addSetting<FloatSettingCell>("core.player.opacity", "Player Opacity", "Changes the visibility of all players in game.");
+    this->addSetting<BoolSettingCell>("core.player.show-names", "Player Names", "Show players; names above their icons.");
+    this->addSetting<BoolSettingCell>("core.player.dual-name", "Player Dual Names", "Show players' names above both icons when in dual mode.");
+    this->addSetting<FloatSettingCell>("core.player.name-opacity", "Name Opacity", "");
+    this->addSetting<BoolSettingCell>("core.player.force-visibility", "Force Visibility", "Forces all players to be visible regardless of distance.");
+    this->addSetting<BoolSettingCell>("core.player.hide-nearby-classic", "Hide Nearby Players (Classic)", "");
+    this->addSetting<BoolSettingCell>("core.player.hide-nearby-plat", "Hide Nearby Players (Plat)", "");
+    this->addSetting<BoolSettingCell>("core.player.hide-practicing", "Hide Practicing Players", "Hides players who are in practice mode.");
+    this->addSetting<BoolSettingCell>("core.player.status-icons", "Show Status Icons", "");
+    this->addSetting<BoolSettingCell>("core.player.rotate-names", "Rotate Names", "Rotates names to match the camera angle.");
+    this->addSetting<BoolSettingCell>("core.player.death-effects", "Death Effects", "Show player death effects.");
+    this->addSetting<BoolSettingCell>("core.player.default-death-effects", "Default Death Effects", "Changes all players' death effects to the default effect. Only applicable if Death Effects is enabled.");
 
     // Level UI
     this->addHeader("core.level", "Level UI");
-    this->addSetting<BoolSettingCell>("core.level.progress-indicators", "Progress Icons", "Shows players icons on the progress bar.");
-    this->addSetting<FloatSettingCell>("core.level.progress-opacity", "Progress Opacity", "");
-    this->addSetting<BoolSettingCell>("core.level.voice-overlay", "Voice Chat Overlay", "Shows an overlay of players currently talking in voice chat.\nThis is useful for reporting players.");
-    this->addSetting<BoolSettingCell>("core.level.force-progressbar", "Force Progress Bar", "Forces the progress bar to always be visible.");
     this->addSetting<BoolSettingCell>("core.level.progress-indicators", "Progress Icons (Classic)", "");
     this->addSetting<BoolSettingCell>("core.level.progress-indicators-plat", "Progress Icons (Plat)", "");
     this->addSetting<FloatSettingCell>("core.level.progress-opacity", "Progress Opacity", "");
-    this->addSetting<BoolSettingCell>("core.level.voice-overlay", "Voice Chat Overlay", "");
-    this->addSetting<BoolSettingCell>("core.level.self-status-icons", "Show Own Status Icons", "");
-    this->addSetting<BoolSettingCell>("core.level.self-name", "Show Own Name", "");
+    this->addSetting<BoolSettingCell>("core.level.voice-overlay", "Voice Chat Overlay", "Shows who is speaking in the level.");
+    this->addSetting<BoolSettingCell>("core.level.force-progressbar", "Force progressbar", "Forces the progress bar to always show in levels.");
+    this->addSetting<BoolSettingCell>("core.level.self-status-icons", "Show Own Status Icons", "Shows you own status (muted, practice, etc) above your icon.");
+    this->addSetting<BoolSettingCell>("core.level.self-name", "Show Own Name", "Show your own name above your icon.");
 
     // Overlay
+    this->addHeader("core.overlay", "Ping overlay");
+    this->addSetting<BoolSettingCell>("core.overlay.enabled", "Enable Overlay", "");
+    this->addSetting<FloatSettingCell>("core.overlay.opacity", "Overlay Opacity", "");
+    this->addSetting<IntCornerSettingCell>("core.overlay.position", "Overlay Position", "");
+    this->addSetting<BoolSettingCell>("core.overlay.always-show", "Always Show Overlay", "");
+
+    // Audio
+    this->addHeader("core.audio", "Audio");
+    this->addSetting<BoolSettingCell>("core.audio.voice-chat-enabled", "Voice Chat", "Enable in-game voice chat.");
+    this->addSetting<FloatSettingCell>("core.audio.playback-volume", "Voice Volume", "Volume of other players' voices.");
+    this->addSetting(ButtonSettingCell::create("Audio Device", "Enables you to change your audio input (microphone).", "Set", [this] {
         AudioDeviceSetupPopup::create()->show();
     }, CELL_SIZE));
     this->addSetting<BoolSettingCell>("core.audio.voice-proximity", "Voice Proximity (Plat)", "");
@@ -129,12 +138,12 @@ void SettingsLayer::addSettings() {
 
     // Preload
     this->addHeader("core.player", "Preloading");
-    this->addSetting<BoolSettingCell>("core.preload.enabled", "Preload Assets", "Load Globed assets on game start.");
+    this->addSetting<BoolSettingCell>("core.preload.enabled", "Preload Assets", "Loads Globed assets (player icons, death effects, etc) when the game launches to reduce in-game loading times.");
     this->addSetting<BoolSettingCell>("core.preload.defer", "Defer Preloading", "");
 
     // Advanced settings
     this->addHeader("core.dev", "Advanced");
-    this->addSetting<BoolSettingCell>("core.ui.allow-custom-servers", "Allow Custom Servers", "Allows adding and connecting to custom user-hosted servers.");
+    this->addSetting<BoolSettingCell>("core.ui.allow-custom-servers", "Allow Custom Servers", "Allows connecting to custom user-hosted Globed servers.");
 
 #ifdef GLOBED_DEBUG
     bool showDebug = true;
