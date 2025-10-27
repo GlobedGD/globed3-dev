@@ -15,6 +15,7 @@
 #include <UIBuilder.hpp>
 #include <asp/time/Instant.hpp>
 #include <qunet/util/algo.hpp>
+#include <cue/Util.hpp>
 
 using namespace geode::prelude;
 using namespace asp::time;
@@ -255,6 +256,11 @@ void GlobedGJBGL::setupListeners() {
         return ListenerResult::Continue;
     });
 
+    fields.m_quickChatListener = nm.listen<msg::QuickChatBroadcastMessage>([this](const msg::QuickChatBroadcastMessage& message) {
+        this->onQuickChatReceived(message.accountId, message.quickChatId);
+        return ListenerResult::Continue;
+    });
+
     fields.m_mutedListener = nm.listen<msg::ChatNotPermittedMessage>([this](const msg::ChatNotPermittedMessage&) {
         m_fields->m_knownServerMuted = true;
         return ListenerResult::Continue;
@@ -422,7 +428,7 @@ void GlobedGJBGL::selUpdate(float tsdt) {
 
     // update position of self emote bubble
     fields.m_selfEmoteBubble->setPosition({
-        m_player1->getPosition() + CCPoint{25.f, 35.f}
+        m_player1->getPosition() + CCPoint{25.f, 20.f + showSelfName * 15.f}
     });
 }
 
@@ -887,6 +893,23 @@ void GlobedGJBGL::onVoiceDataReceived(const msg::VoiceBroadcastMessage& message)
     am.setStreamVolume(message.accountId, vol);
 }
 
+void GlobedGJBGL::onQuickChatReceived(int accountId, uint32_t quickChatId) {
+    if (!globed::setting<bool>("core.player.quick-chat-enabled")) {
+        return;
+    }
+
+    // TODO: allow muting a player, reject packet here
+
+    auto& fields = *m_fields.self();
+
+    auto it = fields.m_players.find(accountId);
+    if (it == fields.m_players.end()) {
+        return;
+    }
+
+    it->second->player1()->playEmote(quickChatId);
+}
+
 float GlobedGJBGL::calculateVolumeFor(int playerId) {
     // how many units before the voice disappears
     constexpr float PROXIMITY_VOICE_LIMIT = 1200.f;
@@ -917,8 +940,11 @@ void GlobedGJBGL::updateProximityVolume(int playerId) {
     AudioManager::get().setStreamVolume(playerId, vol);
 }
 
-EmoteBubble* GlobedGJBGL::getEmoteBubble() {
-    return m_fields->m_selfEmoteBubble;
+void GlobedGJBGL::playSelfEmote(uint32_t id) {
+    auto& fields = *m_fields.self();
+    fields.m_selfEmoteBubble->playEmote(id);
+
+    NetworkManagerImpl::get().sendQuickChat(id);
 }
 
 }

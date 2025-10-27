@@ -11,7 +11,7 @@
 #include <ui/misc/NameLabel.hpp>
 #include <core/game/Interpolator.hpp>
 #include <core/game/SpeedTracker.hpp>
-#include <ui/misc/EmoteBubble.hpp>
+#include <ui/game/EmoteBubble.hpp>
 
 namespace globed {
 
@@ -53,6 +53,7 @@ struct GLOBED_MODIFY_ATTR GlobedGJBGL : geode::Modify<GlobedGJBGL, GJBaseGameLay
         float m_lastDataRequest = 0.f;
         std::optional<MessageListener<msg::LevelDataMessage>> m_levelDataListener;
         std::optional<MessageListener<msg::VoiceBroadcastMessage>> m_voiceListener;
+        std::optional<MessageListener<msg::QuickChatBroadcastMessage>> m_quickChatListener;
         std::optional<MessageListener<msg::ChatNotPermittedMessage>> m_mutedListener;
 
         uint8_t m_deathCount = 0;
@@ -151,11 +152,12 @@ struct GLOBED_MODIFY_ATTR GlobedGJBGL : geode::Modify<GlobedGJBGL, GJBaseGameLay
     void customUnschedule(const std::string& id);
     void customUnscheduleAll();
 
-    EmoteBubble* getEmoteBubble();
+    void playSelfEmote(uint32_t id);
 
 private:
     void onLevelDataReceived(const msg::LevelDataMessage& message);
     void onVoiceDataReceived(const msg::VoiceBroadcastMessage& message);
+    void onQuickChatReceived(int accountId, uint32_t quickChatId);
     float calculateVolumeFor(int playerId);
     void updateProximityVolume(int playerId);
 };

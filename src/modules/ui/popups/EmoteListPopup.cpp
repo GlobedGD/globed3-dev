@@ -3,8 +3,10 @@
 #include <core/hooks/GJBaseGameLayer.hpp>
 
 #include <UIBuilder.hpp>
+#include <asp/time/Instant.hpp>
 
 using namespace geode::prelude;
+using namespace asp::time;
 
 namespace globed {
 
@@ -13,6 +15,8 @@ static constexpr CCSize LIST_SIZE = {260.f, 130.f};
 static constexpr float CELL_HEIGHT = 40.f;
 static constexpr CCSize CELL_SIZE{LIST_SIZE.width, CELL_HEIGHT};
 const int EMOTES_PER_PAGE = 18;
+
+static std::optional<Instant> g_lastEmoteTime;
 
 bool EmoteListPopup::setup() {
     this->setTitle("Emotes");
@@ -23,9 +27,9 @@ bool EmoteListPopup::setup() {
     m_validEmoteIds = this->getValidEmoteIds(100);
     m_maxPages = (m_validEmoteIds.size() + EMOTES_PER_PAGE - 1) / EMOTES_PER_PAGE;
 
-    m_favoriteEmoteIds = std::vector<int>(4, 0);
-    for (int i = 0; i < m_favoriteEmoteIds.size(); i++) {
-        m_favoriteEmoteIds[i] = Mod::get()->getSavedValue<int>(fmt::format("emote-slot-{}", i).c_str(), 0);
+    for (int i = 0; i < 4; i++) {
+        auto emote = Mod::get()->getSavedValue<uint32_t>(fmt::format("emote-slot-{}", i), 0);
+        m_favoriteEmoteIds.push_back(emote);
     }
 
     m_pageLabel = Build<CCLabelBMFont>::create(fmt::format("Page {} of {}", m_selectedPage + 1, m_maxPages).c_str(), "bigFont.fnt")
@@ -39,7 +43,7 @@ bool EmoteListPopup::setup() {
         .anchorPoint(0.5f, 1.f)
         .pos(this->fromTop(40.f))
         .parent(m_mainLayer);
-    
+
     m_list->updateLayout();
 
     m_emoteMenu = Build<CCMenu>::create()
@@ -64,6 +68,7 @@ bool EmoteListPopup::setup() {
         .parent(m_mainLayer);
     m_submitBtnSpr = ButtonSprite::create("Send Emote", "bigFont.fnt", "GJ_button_01.png");
     m_submitBtnSpr->setColor({100, 100, 100});
+    m_submitBtnSpr->setCascadeColorEnabled(true);
     m_submitBtn = Build(m_submitBtnSpr)
         .intoMenuItem([this] {
             this->onSubmitBtn();
@@ -94,7 +99,7 @@ bool EmoteListPopup::setup() {
         .pos({0, 0})
         .contentSize(m_mainLayer->getContentSize())
         .parent(m_mainLayer);
-    
+
     auto leftSpr = CCSprite::createWithSpriteFrameName("GJ_chatBtn_01_001.png");
     m_leftPageBtn = Build(leftSpr)
         .intoMenuItem([this] {
@@ -103,7 +108,7 @@ bool EmoteListPopup::setup() {
         .rotation(90.f)
         .pos(22.f, m_list->getPositionY() - LIST_SIZE.height / 2.f)
         .parent(pageBtnMenu);
-    
+
     auto rightSpr = CCSprite::createWithSpriteFrameName("GJ_chatBtn_01_001.png");
     rightSpr->setFlipY(true);
     m_rightPageBtn = Build(rightSpr)
@@ -121,7 +126,7 @@ bool EmoteListPopup::setup() {
         .anchorPoint(0.5f, 0.5f)
         .pos(this->fromBottom(68.f))
         .parent(m_mainLayer);
-    
+
     auto favoriteLabel = Build<CCLabelBMFont>::create("Favorites", "goldFont.fnt")
         .scale(0.4f)
         .pos(this->fromBottom(95.f))
@@ -140,7 +145,7 @@ bool EmoteListPopup::setup() {
             ->setGap(50.f)
         )
         .parent(m_mainLayer);
-    
+
     this->loadFavoriteEmotesList();
 
     m_favoriteHighlight = Build<CCScale9Sprite>::create("emote-btn-back.png"_spr)
@@ -169,7 +174,7 @@ bool EmoteListPopup::setup() {
         .zOrder(20)
         .visible(false)
         .parent(m_mainLayer);
-    
+
     auto clearFavMenu = Build<CCMenu>::create()
         .pos({m_mainLayer->getContentWidth() - 40.f, 20.f})
         .contentSize({0, 0})
@@ -190,18 +195,33 @@ bool EmoteListPopup::setup() {
 
 
 void EmoteListPopup::onSubmitBtn() {
-    if (m_selectedEmoteId <= 0) {
+    if (m_selectedEmoteId == (uint32_t)-1) {
         // do nothing (this shouldn't happen)
         return;
     }
 
-    // should send emote to server for the player that sent it or smth IDK
-    // currently just sends the emote locally for testing
+    // check cooldown
+    if (!g_lastEmoteTime || g_lastEmoteTime->elapsed().seconds<float>() > 2.5f) {
+        g_lastEmoteTime = Instant::now();
+    } else {
+        // idk how to do this better
+        m_submitBtnSpr->runAction(CCSequence::create(
+            CCTintTo::create(0.05f, 255, 0, 0),
+            CCTintTo::create(0.3f, 255, 255, 255),
+            nullptr
+        ));
+
+        return;
+    }
 
     auto gjbgl = globed::GlobedGJBGL::get();
-    gjbgl->getEmoteBubble()->playEmoteSelf(m_selectedEmoteId);
+    gjbgl->playSelfEmote(m_selectedEmoteId);
 
-    onClose(this);
+    this->onClose(this);
+
+    if (auto pause = CCScene::get()->getChildByType<PauseLayer>(0)) {
+        pause->onResume(pause);
+    }
 }
 
 void EmoteListPopup::loadEmoteListPage(int page) {
@@ -211,7 +231,7 @@ void EmoteListPopup::loadEmoteListPage(int page) {
     int endIdx = std::min(startIdx + EMOTES_PER_PAGE, static_cast<int>(m_validEmoteIds.size()));
 
     for (int i = startIdx; i < endIdx; i++) {
-        int emoteId = m_validEmoteIds.at(i);
+        uint32_t emoteId = m_validEmoteIds.at(i);
 
         bool selected = (emoteId == m_selectedEmoteId);
 
@@ -245,10 +265,10 @@ void EmoteListPopup::loadEmoteListPage(int page) {
     m_emoteMenu->updateLayout();
 }
 
-std::vector<int> EmoteListPopup::getValidEmoteIds(int maxTries) {
-    std::vector<int> validEmoteIds;
+std::vector<uint32_t> EmoteListPopup::getValidEmoteIds(uint32_t maxTries) {
+    std::vector<uint32_t> validEmoteIds;
 
-    for (int i = 1; i <= maxTries; i++) {
+    for (uint32_t i = 1; i <= maxTries; i++) {
         auto testEmote = CCSprite::createWithSpriteFrameName(fmt::format("emote_{}.png"_spr, i).c_str());
         if (testEmote) validEmoteIds.push_back(i);
     }
@@ -256,7 +276,7 @@ std::vector<int> EmoteListPopup::getValidEmoteIds(int maxTries) {
     return validEmoteIds;
 }
 
-void EmoteListPopup::onEmoteBtn(int id) {
+void EmoteListPopup::onEmoteBtn(uint32_t id) {
     // Emote select mode
     if (!m_isFavoriteMode) {
         m_selectedEmoteId = id;
@@ -269,7 +289,7 @@ void EmoteListPopup::onEmoteBtn(int id) {
     }
 }
 
-void EmoteListPopup::setFavorite(int emoteSlot, int id) {
+void EmoteListPopup::setFavorite(int emoteSlot, uint32_t id) {
     m_isFavoriteMode = false;
     m_favoriteEmoteIds[m_selectingFavoriteSlot] = id;
     m_selectingFavoriteSlot = -1;
@@ -281,7 +301,7 @@ void EmoteListPopup::setFavorite(int emoteSlot, int id) {
     m_clearFavoriteBtn->setEnabled(false);
     m_clearFavoriteBtn->setVisible(false);
 
-    Mod::get()->setSavedValue<int>(fmt::format("emote-slot-{}", emoteSlot).c_str(), id);
+    Mod::get()->setSavedValue(fmt::format("emote-slot-{}", emoteSlot), id);
 }
 
 void EmoteListPopup::updatePage(bool increment) {
@@ -318,12 +338,12 @@ void EmoteListPopup::loadFavoriteEmotesList() {
     m_favoriteEmotesMenu->removeAllChildrenWithCleanup(true);
 
     for (int i = 0; i < m_favoriteEmoteIds.size(); i++) {
-        int emoteId = m_favoriteEmoteIds.at(i);
-        int selected = (i == m_selectingFavoriteSlot);
+        uint32_t emoteId = m_favoriteEmoteIds.at(i);
+        bool selected = (i == m_selectingFavoriteSlot);
 
         CCMenuItemSpriteExtra* emoteBtn = Build<CCScale9Sprite>::create("emote-btn-back.png"_spr)
             .contentSize(35.f, 35.f)
-            .color(selected ? ccColor3B(255, 230, 0) : ccColor3B(0, 0, 0))
+            .color(selected ? ccColor3B{255, 230, 0} : ccColor3B{0, 0, 0})
             .opacity(180)
             .intoMenuItem([this, i] {
                 this->enterFavoriteSelectMode(i);

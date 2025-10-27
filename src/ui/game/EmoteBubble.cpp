@@ -32,12 +32,12 @@ bool EmoteBubble::init() {
     m_emoteSpr->setPosition((m_bubbleSpr->getContentSize() / 2.f) + CCPoint{0, 15.f});
     m_bubbleSpr->addChild(m_emoteSpr);
 
-    this->setVisible(false);
+    this->customToggleVis(false);
 
     return true;
 }
 
-void EmoteBubble::playEmoteSelf(int emoteId) {
+void EmoteBubble::playEmote(uint32_t emoteId) {
     auto cache = CCSpriteFrameCache::sharedSpriteFrameCache();
 
     std::string newFrameName = fmt::format("emote_{}.png"_spr, emoteId).c_str();
@@ -46,6 +46,8 @@ void EmoteBubble::playEmoteSelf(int emoteId) {
         auto newFrame = cache->spriteFrameByName(newFrameName.c_str());
         m_emoteSpr->setDisplayFrame(newFrame);
         cue::rescaleToMatch(m_emoteSpr, {50.f, 50.f});
+
+        this->customToggleVis(true);
 
         m_bubbleSpr->setScale(0.2f);
         m_bubbleSpr->runAction(
@@ -69,16 +71,28 @@ void EmoteBubble::playEmoteSelf(int emoteId) {
         std::string path = fmt::format("emote_sfx_{}.ogg"_spr, emoteId).c_str();
         fmod->playEffect(path, 1.f + rng()->random(-0.08f, 0.08f), 1.f, 0.5f);
 
-        this->setVisible(true);
         this->runAction(
             CCSequence::create(
                 CCDelayTime::create(2.5f),
-                CCHide::create(),
+                CallFuncExt::create([this]() { this->customToggleVis(false); }),
                 nullptr
             )
         );
-
     }
+}
+
+void EmoteBubble::setOpacity(uint8_t op) {
+    m_bubbleSpr->setOpacity(op);
+    m_emoteSpr->setOpacity(op);
+}
+
+bool EmoteBubble::isPlaying() {
+    return m_bubbleSpr->isVisible();
+}
+
+void EmoteBubble::customToggleVis(bool vis) {
+    m_bubbleSpr->setVisible(vis);
+    m_emoteSpr->setVisible(vis);
 }
 
 }
