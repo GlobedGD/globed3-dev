@@ -28,7 +28,7 @@ bool EmoteBubble::init() {
         .anchorPoint(0, 0)
         .scale(0.3f)
         .parent(this);
-    
+
     m_emoteSpr->setPosition((m_bubbleSpr->getContentSize() / 2.f) + CCPoint{0, 15.f});
     m_bubbleSpr->addChild(m_emoteSpr);
 
@@ -46,7 +46,7 @@ void EmoteBubble::playEmoteSelf(int emoteId) {
         auto newFrame = cache->spriteFrameByName(newFrameName.c_str());
         m_emoteSpr->setDisplayFrame(newFrame);
         cue::rescaleToMatch(m_emoteSpr, {50.f, 50.f});
-        
+
         m_bubbleSpr->setScale(0.2f);
         m_bubbleSpr->runAction(
             CCSequence::create(
@@ -56,7 +56,7 @@ void EmoteBubble::playEmoteSelf(int emoteId) {
                 nullptr
             )
         );
-        
+
         m_emoteSpr->runAction(
         CCSpawn::create(
                 CCEaseExponentialOut::create(CCMoveBy::create(0.6f, {0, 10.f})),
@@ -73,16 +73,12 @@ void EmoteBubble::playEmoteSelf(int emoteId) {
         this->runAction(
             CCSequence::create(
                 CCDelayTime::create(2.5f),
-                CCCallFuncN::create(this, callfuncN_selector(EmoteBubble::setInvisible)),
+                CCHide::create(),
                 nullptr
             )
         );
-        
-    }
-}
 
-void EmoteBubble::setInvisible(CCNode* sender) {
-    this->setVisible(false);
+    }
 }
 
 }

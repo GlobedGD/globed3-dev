@@ -13,7 +13,6 @@ private:
     cocos2d::CCSprite* m_emoteSpr = nullptr;
     cocos2d::CCSprite* m_bubbleSpr = nullptr;
 
-    void setInvisible(CCNode* sender);
     bool init();
 };
 
