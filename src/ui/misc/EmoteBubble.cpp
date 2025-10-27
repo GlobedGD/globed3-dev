@@ -2,6 +2,7 @@
 
 #include <UIBuilder.hpp>
 #include <cue/Util.hpp>
+#include <globed/util/Random.hpp>
 
 using namespace geode::prelude;
 
@@ -64,14 +65,9 @@ void EmoteBubble::playEmoteSelf(int emoteId) {
             )
         );
 
-        // TODO: Play the sound effect if available
-        // should check to see if "emote_sfx_emoteId.ogg" exists in the emotes_sfx folder
-        // if it does, then play the sound effect around the player that had the emote bubble appear for
-        
         auto fmod = FMODAudioEngine::sharedEngine();
         std::string path = fmt::format("emote_sfx_{}.ogg"_spr, emoteId).c_str();
-        fmod->playEffect(path, 1.f + (CCRANDOM_MINUS1_1() * 0.08f), 1.f, 0.75f);
-
+        fmod->playEffect(path, 1.f + rng()->random(-0.08f, 0.08f), 1.f, 0.5f);
 
         this->setVisible(true);
         this->runAction(
