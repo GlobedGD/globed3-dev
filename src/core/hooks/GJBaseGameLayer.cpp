@@ -235,6 +235,10 @@ void GlobedGJBGL::setupUi() {
         .parent(fields.m_playerNode)
         .id("self-player-name"_spr);
     fields.m_selfNameLabel->setShadowEnabled(true);
+
+    fields.m_selfEmoteBubble = Build<EmoteBubble>::create()
+        .parent(fields.m_playerNode)
+        .id("emote-bubble-node"_spr);
 }
 
 void GlobedGJBGL::setupListeners() {
@@ -415,6 +419,11 @@ void GlobedGJBGL::selUpdate(float tsdt) {
         this->selPeriodicalUpdate(fields.m_periodicalDelta);
         fields.m_periodicalDelta = 0.f;
     }
+
+    // update position of self emote bubble
+    fields.m_selfEmoteBubble->setPosition({
+        m_player1->getPosition() + CCPoint{25.f, 35.f}
+    });
 }
 
 void GlobedGJBGL::selPeriodicalUpdate(float dt) {
@@ -906,6 +915,10 @@ float GlobedGJBGL::calculateVolumeFor(int playerId) {
 void GlobedGJBGL::updateProximityVolume(int playerId) {
     float vol = this->calculateVolumeFor(playerId);
     AudioManager::get().setStreamVolume(playerId, vol);
+}
+
+EmoteBubble* GlobedGJBGL::getEmoteBubble() {
+    return m_fields->m_selfEmoteBubble;
 }
 
 }

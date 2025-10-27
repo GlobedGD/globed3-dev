@@ -11,6 +11,7 @@
 #include <ui/misc/NameLabel.hpp>
 #include <core/game/Interpolator.hpp>
 #include <core/game/SpeedTracker.hpp>
+#include <ui/misc/EmoteBubble.hpp>
 
 namespace globed {
 
@@ -75,6 +76,8 @@ struct GLOBED_MODIFY_ATTR GlobedGJBGL : geode::Modify<GlobedGJBGL, GJBaseGameLay
         Ref<NameLabel> m_selfNameLabel;
         Ref<VoiceOverlay> m_voiceOverlay;
         Ref<PingOverlay> m_pingOverlay;
+
+        Ref<EmoteBubble> m_selfEmoteBubble = nullptr;
     };
 
     // Setup functions
@@ -147,6 +150,8 @@ struct GLOBED_MODIFY_ATTR GlobedGJBGL : geode::Modify<GlobedGJBGL, GJBaseGameLay
     void customSchedule(const std::string& id, std23::move_only_function<void(GlobedGJBGL*, float)>&& f, float interval);
     void customUnschedule(const std::string& id);
     void customUnscheduleAll();
+
+    EmoteBubble* getEmoteBubble();
 
 private:
     void onLevelDataReceived(const msg::LevelDataMessage& message);
