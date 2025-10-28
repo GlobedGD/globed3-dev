@@ -293,6 +293,8 @@ void GlobedGJBGL::selUpdateProxy(float dt) {
 
 void GlobedGJBGL::selUpdate(float tsdt) {
     auto& fields = *m_fields.self();
+    if (!fields.m_active) return;
+
     auto& pcm = PlayerCacheManager::get();
     auto& rm = RoomManager::get();
 
