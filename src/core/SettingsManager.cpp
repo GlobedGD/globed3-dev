@@ -45,6 +45,11 @@ SettingsManager::SettingsManager() {
     this->registerSetting("core.player.rotate-names", true);
     this->registerSetting("core.player.death-effects", true);
     this->registerSetting("core.player.default-death-effects", false);
+    // invisible settings
+    this->registerSetting("core.player.blacklisted-players", matjson::Value::array());
+    this->registerSetting("core.player.whitelisted-players", matjson::Value::array());
+    this->registerSetting("core.player.hidden-players", matjson::Value::array());
+    this->refreshPlayerLists();
 
     // Level UI
     this->registerSetting("core.level.progress-indicators", true);
@@ -363,6 +368,64 @@ void SettingsManager::switchToSaveSlot(size_t id) {
     globed::setValue("core.settingsv3.save-slot", m_activeSaveSlot);
 
     this->reloadFromSlot();
+}
+
+bool SettingsManager::isPlayerBlacklisted(int id) {
+    return m_blacklisted.contains(id);
+}
+
+bool SettingsManager::isPlayerWhitelisted(int id) {
+    return m_whitelisted.contains(id);
+}
+
+bool SettingsManager::isPlayerHidden(int id) {
+    return m_hidden.contains(id);
+}
+
+void SettingsManager::refreshPlayerLists() {
+    auto bl = this->setting<std::vector<int>>("core.player.blacklisted-players");
+    auto wl = this->setting<std::vector<int>>("core.player.whitelisted-players");
+    auto hl = this->setting<std::vector<int>>("core.player.hidden-players");
+
+    m_whitelisted.clear();
+    m_blacklisted.clear();
+    m_hidden.clear();
+
+    for (auto& id : wl.value()) {
+        m_whitelisted.insert(id);
+    }
+
+    for (auto& id : bl.value()) {
+        m_blacklisted.insert(id);
+    }
+
+    for (auto& id : hl.value()) {
+        m_hidden.insert(id);
+    }
+}
+
+void SettingsManager::commitPlayerLists() {
+    std::vector<int> bl{asp::iter::from(m_blacklisted).collect()};
+    std::vector<int> wl{asp::iter::from(m_whitelisted).collect()};
+    std::vector<int> hl{asp::iter::from(m_hidden).collect()};
+
+    this->setting<std::vector<int>>("core.player.blacklisted-players") = bl;
+    this->setting<std::vector<int>>("core.player.whitelisted-players") = wl;
+    this->setting<std::vector<int>>("core.player.hidden-players") = hl;
+}
+
+void SettingsManager::blacklistPlayer(int id) {
+    m_blacklisted.insert(id);
+    m_whitelisted.erase(id);
+    this->refreshPlayerLists();
+}
+
+void SettingsManager::whitelistPlayer(int id) {
+
+}
+
+void SettingsManager::setPlayerHidden(int id, bool hidden) {
+
 }
 
 void SettingsManager::reloadFromSlot() {

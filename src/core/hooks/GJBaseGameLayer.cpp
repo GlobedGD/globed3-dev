@@ -5,6 +5,7 @@
 #include <globed/core/SettingsManager.hpp>
 #include <globed/core/KeybindsManager.hpp>
 #include <globed/core/PopupManager.hpp>
+#include <globed/core/FriendListManager.hpp>
 #include <globed/util/algo.hpp>
 #include <globed/util/gd.hpp>
 #include <globed/util/FunctionQueue.hpp>
@@ -782,6 +783,18 @@ void GlobedGJBGL::recordPlayerJump(bool p1) {
     (p1 ? fields.m_didJustJump1 : fields.m_didJustJump2) = true;
 }
 
+bool GlobedGJBGL::shouldLetMessageThrough(int playerId) {
+    auto& sm = SettingsManager::get();
+    auto& flm = FriendListManager::get();
+
+    if (sm.isPlayerBlacklisted(playerId)) return false;
+    if (sm.isPlayerWhitelisted(playerId)) return true;
+
+    if (globed::setting<bool>("core.audio.friends-only") && !flm.isFriend(playerId)) return false;
+
+    return true;
+}
+
 void GlobedGJBGL::toggleCullingEnabled(bool culling) {
     m_fields->m_noGlobalCulling = !culling;
 }
@@ -881,7 +894,9 @@ void GlobedGJBGL::onVoiceDataReceived(const msg::VoiceBroadcastMessage& message)
         return;
     }
 
-    // TODO: allow muting a player, reject packet here
+    if (!this->shouldLetMessageThrough(message.accountId)) {
+        return;
+    }
 
     auto res = am.playFrameStreamed(message.accountId, message.frame);
     if (!res) {
@@ -898,7 +913,9 @@ void GlobedGJBGL::onQuickChatReceived(int accountId, uint32_t quickChatId) {
         return;
     }
 
-    // TODO: allow muting a player, reject packet here
+    if (!this->shouldLetMessageThrough(accountId)) {
+        return;
+    }
 
     auto& fields = *m_fields.self();
 

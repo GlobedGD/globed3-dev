@@ -139,6 +139,15 @@ public:
     void switchToSaveSlot(size_t id);
     inline size_t getActiveSaveSlot() const { return m_activeSaveSlot; }
 
+    bool isPlayerBlacklisted(int id);
+    bool isPlayerWhitelisted(int id);
+    bool isPlayerHidden(int id);
+    void blacklistPlayer(int id);
+    void whitelistPlayer(int id);
+    void setPlayerHidden(int id, bool hidden);
+    void refreshPlayerLists();
+    void commitPlayerLists();
+
 private:
     friend class SingletonBase;
     friend class CoreImpl;
@@ -155,6 +164,8 @@ private:
     std::filesystem::path m_slotDir;
     std::vector<matjson::Value> m_saveSlots;
     size_t m_activeSaveSlot = 0;
+
+    std::unordered_set<int> m_whitelisted, m_blacklisted, m_hidden;
 
     SettingsManager();
 

@@ -2,7 +2,9 @@
 #include <globed/core/ValueManager.hpp>
 #include <globed/core/FriendListManager.hpp>
 #include <globed/core/PlayerCacheManager.hpp>
+#include <globed/audio/AudioManager.hpp>
 #include <core/hooks/GJBaseGameLayer.hpp>
+#include <core/net/NetworkManagerImpl.hpp>
 #include <core/CoreImpl.hpp>
 #include <ui/misc/PlayerListCell.hpp>
 #include <ui/misc/Sliders.hpp>
@@ -17,6 +19,10 @@ const CCSize UserListPopup::POPUP_SIZE {400.f, 280.f};
 static constexpr CCSize LIST_SIZE = {340.f, 190.f};
 static constexpr float CELL_HEIGHT = 27.f;
 static constexpr CCSize CELL_SIZE{LIST_SIZE.width, CELL_HEIGHT};
+
+constexpr static size_t countBools(auto&&... bools) {
+    return (static_cast<size_t>(bools) + ... + 0);
+}
 
 namespace {
 
@@ -61,13 +67,67 @@ public:
 
 protected:
     bool customSetup() {
+        auto gjbgl = GlobedGJBGL::get();
+
         // add buttons
+        bool self = m_accountId == cachedSingleton<GJAccountManager>()->m_accountID;
         CoreImpl::get().onUserlistSetup(
             m_rightMenu,
             m_accountId,
-            m_accountId == cachedSingleton<GJAccountManager>()->m_accountID,
+            self,
             m_popup
         );
+
+        bool createBtnHide = !self;
+        bool createBtnMute = !self;
+        bool createBtnAdmin = NetworkManagerImpl::get().isAuthorizedModerator();
+        bool createBtnTp = createBtnAdmin && !self;
+        bool createVisualizer = !self && globed::setting<bool>("core.audio.voice-chat-enabled");
+        size_t buttonCount = countBools(createBtnHide, createBtnMute, createBtnAdmin, createBtnTp, createVisualizer);
+
+        // if no visualizer, max button count is 4, otherwise 2
+        size_t maxButtonCount = createVisualizer ? 2 : 4;
+
+        // if the buttons don't fit, create a settings button which shows a popup with the rest of the buttons
+        bool createSettingsBtn = buttonCount > maxButtonCount;
+
+        auto mainButtons = CCArray::create();
+        auto popupButtons = CCArray::create();
+        CCSize btnSize = {20.f, 20.f};
+        CCSize btnSizeBig = {28.f, 28.f};
+
+        // Create various buttons
+
+        // god i hate this
+        bool muteAndHideInCell = (!createVisualizer || buttonCount == 2);
+
+        bool isMuted = !gjbgl->shouldLetMessageThrough(m_accountId);
+        bool isHidden = self ? false : SettingsManager::get().isPlayerHidden(m_accountId);
+
+        auto muteOn = CCSprite::create("icon-mute.png"_spr);
+        auto muteOff = CCSprite::create("icon-unmute.png"_spr);
+        cue::rescaleToMatch(muteOn, muteAndHideInCell ? btnSizeBig : btnSize);
+        cue::rescaleToMatch(muteOff, muteAndHideInCell ? btnSizeBig : btnSize);
+
+        auto muteButton = CCMenuItemExt::createToggler(
+            muteOn,
+            muteOff,
+            [accountId = m_accountId, gjbgl](CCMenuItemToggler* btn) {
+                bool muted = btn->isOn();
+                auto& sm = SettingsManager::get();
+
+                muted ? (sm.blacklistPlayer(accountId)) : (sm.whitelistPlayer(accountId));
+
+                auto& am = AudioManager::get();
+                if (muted) {
+                    am.setStreamVolume(accountId, 0.f);
+                } else {
+                    am.setStreamVolume(accountId, gjbgl->calculateVolumeFor(accountId));
+                }
+        });
+
+        // TODO: rest of this i gtg
+
 
         m_rightMenu->updateLayout();
 

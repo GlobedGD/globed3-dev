@@ -140,6 +140,8 @@ struct GLOBED_MODIFY_ATTR GlobedGJBGL : geode::Modify<GlobedGJBGL, GJBaseGameLay
     GameCameraState getCameraState();
     RemotePlayer* getPlayer(int playerId);
     void recordPlayerJump(bool p1);
+    float calculateVolumeFor(int playerId);
+    bool shouldLetMessageThrough(int playerId);
 
     void toggleCullingEnabled(bool culling);
     void toggleExtendedData(bool extended);
@@ -158,7 +160,6 @@ private:
     void onLevelDataReceived(const msg::LevelDataMessage& message);
     void onVoiceDataReceived(const msg::VoiceBroadcastMessage& message);
     void onQuickChatReceived(int accountId, uint32_t quickChatId);
-    float calculateVolumeFor(int playerId);
     void updateProximityVolume(int playerId);
 };
 
