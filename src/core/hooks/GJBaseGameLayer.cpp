@@ -790,7 +790,7 @@ bool GlobedGJBGL::shouldLetMessageThrough(int playerId) {
     if (sm.isPlayerBlacklisted(playerId)) return false;
     if (sm.isPlayerWhitelisted(playerId)) return true;
 
-    if (globed::setting<bool>("core.audio.friends-only") && !flm.isFriend(playerId)) return false;
+    if (globed::setting<bool>("core.audio.only-friends") && !flm.isFriend(playerId)) return false;
 
     return true;
 }
