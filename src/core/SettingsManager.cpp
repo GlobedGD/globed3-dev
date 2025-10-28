@@ -383,25 +383,13 @@ bool SettingsManager::isPlayerHidden(int id) {
 }
 
 void SettingsManager::refreshPlayerLists() {
-    auto bl = this->setting<std::vector<int>>("core.player.blacklisted-players");
-    auto wl = this->setting<std::vector<int>>("core.player.whitelisted-players");
-    auto hl = this->setting<std::vector<int>>("core.player.hidden-players");
+    auto bl = this->getSettingRaw<std::vector<int>>(this->keyHash("core.player.blacklisted-players"));
+    auto wl = this->getSettingRaw<std::vector<int>>(this->keyHash("core.player.whitelisted-players"));
+    auto hl = this->getSettingRaw<std::vector<int>>(this->keyHash("core.player.hidden-players"));
 
-    m_whitelisted.clear();
-    m_blacklisted.clear();
-    m_hidden.clear();
-
-    for (auto& id : wl.value()) {
-        m_whitelisted.insert(id);
-    }
-
-    for (auto& id : bl.value()) {
-        m_blacklisted.insert(id);
-    }
-
-    for (auto& id : hl.value()) {
-        m_hidden.insert(id);
-    }
+    m_whitelisted = asp::iter::from(wl).collect<std::unordered_set<int>>();
+    m_blacklisted = asp::iter::from(bl).collect<std::unordered_set<int>>();
+    m_hidden = asp::iter::from(hl).collect<std::unordered_set<int>>();
 }
 
 void SettingsManager::commitPlayerLists() {
@@ -409,9 +397,9 @@ void SettingsManager::commitPlayerLists() {
     std::vector<int> wl{asp::iter::from(m_whitelisted).collect()};
     std::vector<int> hl{asp::iter::from(m_hidden).collect()};
 
-    this->setting<std::vector<int>>("core.player.blacklisted-players") = bl;
-    this->setting<std::vector<int>>("core.player.whitelisted-players") = wl;
-    this->setting<std::vector<int>>("core.player.hidden-players") = hl;
+    this->setSettingRaw(this->keyHash("core.player.blacklisted-players"), std::move(bl));
+    this->setSettingRaw(this->keyHash("core.player.whitelisted-players"), std::move(wl));
+    this->setSettingRaw(this->keyHash("core.player.hidden-players"), std::move(hl));
 }
 
 void SettingsManager::blacklistPlayer(int id) {

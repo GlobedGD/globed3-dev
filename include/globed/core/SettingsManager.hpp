@@ -76,13 +76,13 @@ public:
     }
 
     template <typename T>
-    void setSettingRaw(uint64_t hash, T value) {
+    void setSettingRaw(uint64_t hash, T&& value) {
         if (!this->hasSetting(hash)) {
             // internal error, means we used a wrong id somewhere
             geode::utils::terminate(fmt::format("setting not found with hash {}", hash));
         }
 
-        matjson::Value val = value;
+        matjson::Value val = std::forward<T>(value);
         auto it = m_validators.find(hash);
         if (it != m_validators.end()) {
             if (!it->second(val)) {
