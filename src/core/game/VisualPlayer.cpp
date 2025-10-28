@@ -201,7 +201,6 @@ void VisualPlayer::updateFromData(const PlayerObjectData& data, const PlayerStat
     m_lastPosition = data.position;
     m_positionX = data.position.x;
     m_positionY = data.position.y;
-    // TODO: should we set rest of the flags?
 
     // setFlipX doesn't work here for jetpack and stuff
     float mult = data.isMini ? 0.6f : 1.0f;

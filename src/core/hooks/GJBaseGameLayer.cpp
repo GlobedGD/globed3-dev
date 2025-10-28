@@ -21,8 +21,6 @@
 using namespace geode::prelude;
 using namespace asp::time;
 
-// TODO: check m_active in these hooks, same for playlayer and lel?
-
 constexpr float VOICE_OVERLAY_PAD_X = 5.f;
 constexpr float VOICE_OVERLAY_PAD_Y = 20.f;
 
